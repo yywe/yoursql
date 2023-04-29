@@ -8,4 +8,6 @@ pub enum StorageError {
     DBRegistered(String),
     #[error("did not find the next databae id")]
     NextDBIDNotFound,
+    #[error("the database {0} does not exist")]
+    DBNotExist(String),
 }

@@ -13,18 +13,12 @@ async fn main() -> Result<()> {
     tracing::subscriber::set_global_default(subscriber).unwrap();
 
     info!("starting the database...");
-
     let ss = SledStore::init("./tempdb").await?;
-
-    let ans = ss.listdbs()?;
+    let ans = ss.listdbs().await?;
     println!("list of dbs:{:#?}",ans);
-
     ss.create_database(&"testdb2".into()).await?;
-
-    let ans = ss.listdbs()?;
+    let ans = ss.listdbs().await?;
     println!("list of dbs:{:#?}",ans);
-
     ss.drop_database(&"testdb2".into()).await?;
-
     Ok(())
 }

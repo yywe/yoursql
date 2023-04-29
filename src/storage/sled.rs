@@ -1,10 +1,10 @@
 use super::Catalog;
+use super::DbMeta;
 use crate::error::StorageError;
 use anyhow::Result;
 use async_fs as fs;
 use async_trait::async_trait;
-use chrono::{DateTime, Local};
-use serde::{Deserialize, Serialize};
+use chrono::Local;
 use sled::Db;
 use std::path::Path;
 use tracing::info;
@@ -13,13 +13,6 @@ pub struct SledStore {
     pub root: Box<Path>,
     pub db: Db,
     pub curdbid: u32,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct DbMeta {
-    pub id: u32,
-    pub name: String,
-    pub create_time: DateTime<Local>,
 }
 
 impl SledStore {
@@ -45,27 +38,12 @@ impl SledStore {
             sled::open(root.join("master"))?
         };
         master_db.flush()?;
+        info!("init finished with master path {:?}",master_path);
         Ok(Self {
             root: root.into(),
             db: master_db,
             curdbid: 0,
         })
-    }
-
-    pub fn listdbs(&self) -> Result<Vec<DbMeta>> {
-        if self.curdbid != 0 {
-            return Err(StorageError::MustInMaster(self.curdbid).into());
-        }
-        let dblist = self
-            .db
-            .scan_prefix("db")
-            .map(|record| {
-                let (_, encoded) = record?;
-                let decoded: DbMeta = bincode::deserialize(&encoded)?;
-                Ok(decoded)
-            })
-            .collect::<Result<Vec<_>>>()?;
-        Ok(dblist)
     }
 }
 
@@ -81,7 +59,8 @@ impl Catalog for SledStore {
             return Err(StorageError::DBRegistered(database_name.clone()).into());
         }
         if self
-            .listdbs()?
+            .listdbs()
+            .await?
             .into_iter()
             .find(|meta| meta.name == *database_name)
             .is_some()
@@ -116,7 +95,8 @@ impl Catalog for SledStore {
             return Err(StorageError::MustInMaster(self.curdbid).into());
         }
         let dblist = self
-            .listdbs()?
+            .listdbs()
+            .await?
             .into_iter()
             .find(|meta| meta.name == *database_name);
         match dblist {
@@ -129,12 +109,51 @@ impl Catalog for SledStore {
         fs::remove_dir_all(dbpath).await?;
         Ok(())
     }
+    async fn listdbs(&self) -> Result<Vec<DbMeta>> {
+        let mdb = match self.curdbid {
+            0 => self.db.clone(),
+            _=>sled::open(self.root.join("master"))?,
+        };
+        let dblist = mdb
+            .scan_prefix("db")
+            .map(|record| {
+                let (_, encoded) = record?;
+                let decoded: DbMeta = bincode::deserialize(&encoded)?;
+                Ok(decoded)
+            })
+            .collect::<Result<Vec<_>>>()?;
+        Ok(dblist)
+    }
+
+    async fn usedb(&mut self, database_name: &String) -> Result<()> {
+        info!("use database {}", database_name);
+        let dbpath = self.root.join(database_name);
+        if !dbpath.exists() {
+            return Err(StorageError::DBNotExist(database_name.clone()).into());
+        }
+        let targetdb = self
+            .listdbs()
+            .await?
+            .into_iter()
+            .find(|meta| meta.name == *database_name);
+        if targetdb.is_none() {
+            return Err(StorageError::DBNotExist(database_name.clone()).into());
+        }
+        self.db = sled::open(self.root.join(database_name))?;
+        self.curdbid = targetdb.unwrap().id;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
     use tracing_subscriber::{EnvFilter, FmtSubscriber};
+    impl Drop for SledStore {
+        fn drop(&mut self) {
+            _ = std::fs::remove_dir_all(self.root.as_os_str());
+        }
+    }
     #[tokio::test]
     async fn test_sledstore() -> Result<()> {
         let env_filter = EnvFilter::try_from_default_env()
@@ -145,18 +164,21 @@ mod test {
             .finish();
         tracing::subscriber::set_global_default(subscriber).unwrap();
         let test_folder = "./tdb";
-        let ss = SledStore::init(test_folder).await?;
-        let initdbs = ss.listdbs()?;
+        let mut ss = SledStore::init(test_folder).await?;
+        let initdbs = ss.listdbs().await?;
         assert_eq!(initdbs.len(), 1);
         assert_eq!(initdbs[0].name, "master");
         ss.create_database(&"newdb".into()).await?;
-        let alldbs = ss.listdbs()?;
+        let alldbs = ss.listdbs().await?;
         assert_eq!(alldbs.len(), 2);
         assert_eq!(alldbs[1].name, "newdb");
+        ss.usedb(&String::from("newdb")).await?;
+        assert_eq!(1, ss.curdbid);
+        //switch back to master before we can drop the db
+        ss.usedb(&String::from("master")).await?;
         ss.drop_database(&"newdb".into()).await?;
-        let afterdrop = ss.listdbs()?;
+        let afterdrop = ss.listdbs().await?;
         assert_eq!(afterdrop.len(), 1);
-        fs::remove_dir_all(test_folder).await?;
         Ok(())
     }
 }
