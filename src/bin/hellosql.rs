@@ -1,4 +1,4 @@
-use yoursql::storage::{SledStore, Catalog};
+use yoursql::storage::{SledStore, Storage};
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
 use tracing::{debug, info, span, Level};
 use anyhow::Result;
@@ -13,7 +13,7 @@ async fn main() -> Result<()> {
     tracing::subscriber::set_global_default(subscriber).unwrap();
 
     info!("starting the database...");
-    let ss = SledStore::init("./tempdb").await?;
+    let ss = SledStore::init("./tempdb",2).await?;
     let ans = ss.listdbs().await?;
     println!("list of dbs:{:#?}",ans);
     ss.create_database(&"testdb2".into()).await?;

@@ -10,4 +10,8 @@ pub enum StorageError {
     NextDBIDNotFound,
     #[error("the database {0} does not exist")]
     DBNotExist(String),
+    #[error("the table name {0} is not valid: reason:{1}")]
+    InvalidTableName(String, String),
+    #[error("row error for table: {0}, message:{1}")]
+    RowError(String, String),
 }
