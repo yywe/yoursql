@@ -17,6 +17,7 @@ pub struct Column {
 }
 pub type Columns = Vec<Column>;
 
+#[derive(Debug)]
 pub enum ResultBatch {
     Query {
         columns: Columns,
