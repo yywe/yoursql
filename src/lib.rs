@@ -1,3 +1,4 @@
+#![feature(generators)]
 pub mod storage;
 pub mod error;
 pub mod execution;

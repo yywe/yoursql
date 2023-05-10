@@ -373,6 +373,10 @@ impl Storage for SledStore {
             rowiter: rowiter,
         }))        
     }
+
+    async fn get_table_def(&self, name: &str) -> Result<Table>{
+        return self.get_table(name);
+    }
 }
 
 pub struct BatchIter {

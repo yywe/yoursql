@@ -1,6 +1,13 @@
+
+mod scan;
 use crate::storage::Batch;
+use crate::storage::Row;
 use crate::storage::Storage;
-use anyhow::Result;
+use crate::error::ExecuteError;
+use std::sync::Arc;
+use anyhow::Error;
+use futures_async_stream::try_stream;
+
 
 
 // column def in result is very simple, even column name is optional
@@ -10,13 +17,15 @@ pub struct Column {
 }
 pub type Columns = Vec<Column>;
 
-pub enum ResultSet {
+pub enum ResultBatch {
     Query {
         columns: Columns,
-        rows: Batch,
+        rows: Vec<Row>,
     }
 }
 
+
 pub trait Executor<T: Storage> {
-    fn execute(&self, store: &T) -> Result<ResultSet>;
+    #[try_stream(boxed, ok=ResultBatch, error = Box<dyn std::error::Error>)]
+    async fn execute(&self, store: Arc<T>);
 }

@@ -93,10 +93,10 @@ pub struct Column {
 }
 
 pub type Row = Vec<Value>;
-pub type Batch = Box<dyn Iterator<Item = Result<Vec<Vec<Value>>>>>;
+pub type Batch = Box<dyn Iterator<Item = Result<Vec<Vec<Value>>>> + Send>;
 
 #[async_trait]
-pub trait Storage {
+pub trait Storage: Sync + Send{
     // methods for database level operation
     async fn create_database(&self, database_name: &String) ->Result<()>;
     async fn drop_database(&self, database_name: &String) -> Result<()>;
@@ -107,6 +107,7 @@ pub trait Storage {
     async fn create_table(&self, table: &Table) -> Result<()>;
     async fn listtbls(&self) -> Result<Vec<Table>>;
     async fn drop_table(&self, name: &str) -> Result<()>;
+    async fn get_table_def(&self, name: &str) -> Result<Table>;
 
     // methods for table data operation
     async fn insert_row(&self, table: &str, row: Row) -> Result<u64>;

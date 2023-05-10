@@ -15,3 +15,10 @@ pub enum StorageError {
     #[error("row error for table: {0}, message:{1}")]
     RowError(String, String),
 }
+
+
+#[derive(Error, Debug)]
+pub enum ExecuteError {
+    #[error("execute error: {0}")]
+    ExecuteError(String),
+} 
