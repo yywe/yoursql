@@ -1,9 +1,6 @@
-
 mod scan;
-use crate::storage::Batch;
 use crate::storage::Row;
 use crate::storage::Storage;
-use crate::error::ExecuteError;
 use std::sync::Arc;
 use anyhow::Error;
 use futures_async_stream::try_stream;
@@ -27,6 +24,6 @@ pub enum ResultBatch {
 
 
 pub trait Executor<T: Storage> {
-    #[try_stream(boxed, ok=ResultBatch, error = Box<dyn std::error::Error>)]
+    #[try_stream(boxed, ok=ResultBatch, error = Error)]
     async fn execute(&self, store: Arc<T>);
 }

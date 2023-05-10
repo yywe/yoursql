@@ -18,7 +18,7 @@ impl Scan {
 }
 
 impl<T: Storage + 'static> Executor<T> for Scan {
-    #[try_stream(boxed, ok=ResultBatch, error = Box<dyn std::error::Error>)]
+    #[try_stream(boxed, ok=ResultBatch, error = anyhow::Error)]
     async fn execute(&self, store: Arc<T>) {
         let tbl = store.get_table_def(self.table.as_str()).await?;
         let mut dbscan = store.scan_table(self.table.as_str()).await?;
@@ -49,7 +49,6 @@ mod test {
     use crate::storage::Value;
     use anyhow::Result;
     use futures::StreamExt;
-    use tracing_subscriber::{EnvFilter, FmtSubscriber};
 
     #[tokio::test]
     async fn test_scan() -> Result<()> {
