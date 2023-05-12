@@ -17,9 +17,9 @@ impl Scan {
     }
 }
 
-impl<T: Storage + 'static> Executor<T> for Scan {
+impl<T: Storage> Executor<T> for Scan {
     #[try_stream(boxed, ok=ResultBatch, error = anyhow::Error)]
-    async fn execute(&self, store: Arc<T>) {
+    async fn execute(self: Box<Self>, store: &mut T) {
         let tbl = store.get_table_def(self.table.as_str()).await?;
         let mut dbscan = store.scan_table(self.table.as_str()).await?;
         while let Some(data) = dbscan.next() {
@@ -114,9 +114,8 @@ mod test {
         ss.insert_row("testtable", testrow7).await?;
 
         let scanop = Scan::new("testtable".into(), None);
-        let mut scanss = scanop.execute(Arc::new(ss));
-        while let Some(value) = scanss.next().await {
-            let v = value.ok().unwrap();
+        let mut scanss = scanop.execute(&mut ss);
+        while let Some(v) = scanss.next().await.transpose()? {
             //println!("the output batch:{:#?}", v);
             match v {
                 ResultBatch::Query { columns: _, rows } => {
