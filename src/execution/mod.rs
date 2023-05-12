@@ -2,7 +2,6 @@ mod source;
 mod query;
 use crate::storage::Row;
 use crate::storage::Storage;
-use std::sync::Arc;
 use anyhow::Error;
 use futures_async_stream::try_stream;
 

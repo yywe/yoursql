@@ -3,7 +3,6 @@ use super::ResultBatch;
 use crate::execution::Executor;
 use crate::{plan::Expression, storage::Storage};
 use futures_async_stream::try_stream;
-use std::sync::Arc;
 
 pub struct Scan {
     table: String,

@@ -494,6 +494,7 @@ mod test {
     use super::super::Column;
     use super::*;
     use tracing_subscriber::{EnvFilter, FmtSubscriber};
+    
     impl Drop for SledStore {
         fn drop(&mut self) {
             _ = std::fs::remove_dir_all(self.root.as_os_str());
