@@ -71,146 +71,12 @@ mod test {
     use crate::storage::SledStore;
     use crate::storage::Value;
     use anyhow::Result;
-    use crate::storage::Table;
-    use crate::storage::Column;
-
-    async fn gen_test_db() -> Result<SledStore> {
-        let mut ss = SledStore::init("./testdb", 2).await?;
-        ss.create_database(&"newdb".into()).await?;
-        ss.usedb(&String::from("newdb")).await?;
-        assert_eq!(1, ss.curdbid);
-        let test_table = Table {
-            name: "testtable".into(),
-            columns: vec![
-                Column {
-                    name: "column1".into(),
-                    primary_key: true,
-                    ..Column::default()
-                },
-                Column {
-                    name: "column2".into(),
-                    ..Column::default()
-                },
-                Column {
-                    name: "column3".into(),
-                    ..Column::default()
-                },
-            ],
-        };
-        ss.create_table(&test_table).await?;
-        let testrow0: Row = vec![
-            Value::String("r1".into()),
-            Value::String("a".into()),
-            Value::String("b".into()),
-        ];
-        ss.insert_row("testtable", testrow0.clone()).await?;
-        let testrow2: Row = vec![
-            Value::String("r2".into()),
-            Value::String("a".into()),
-            Value::String("c".into()),
-        ];
-        ss.insert_row("testtable", testrow2.clone()).await?;
-        let testrow4: Row = vec![
-            Value::String("r3".into()),
-            Value::String("a".into()),
-            Value::String("e".into()),
-        ];
-        ss.insert_row("testtable", testrow4).await?;
-        let testrow5: Row = vec![
-            Value::String("r4".into()),
-            Value::String("x".into()),
-            Value::String("c".into()),
-        ];
-        ss.insert_row("testtable", testrow5).await?;
-        let testrow6: Row = vec![
-            Value::String("r5".into()),
-            Value::String("x".into()),
-            Value::String("c".into()),
-        ];
-        ss.insert_row("testtable", testrow6).await?;
-        let testrow7: Row = vec![
-            Value::String("r6".into()),
-            Value::String("y".into()),
-            Value::String("d".into()),
-        ];
-        ss.insert_row("testtable", testrow7).await?;
-
-        Ok(ss)
-    }
+    use crate::execution::test::gen_test_db;
 
     #[tokio::test]
     async fn test_filter() -> Result<()> {
-        //let mut ss = gen_test_db().await?;
-
-        //ss.usedb(&String::from("newdb")).await?;
-
-        //todo: abstruct 2 helper function
-        //1. make the logic to prepare test database a function so we can avoid duplie those code
-        //2. pretty print the query result
-
-        let mut ss = SledStore::init("./testdb", 2).await?;
-        ss.create_database(&"newdb".into()).await?;
-        ss.usedb(&String::from("newdb")).await?;
-        assert_eq!(1, ss.curdbid);
-        let test_table = Table {
-            name: "testtable".into(),
-            columns: vec![
-                Column {
-                    name: "column1".into(),
-                    primary_key: true,
-                    ..Column::default()
-                },
-                Column {
-                    name: "column2".into(),
-                    ..Column::default()
-                },
-                Column {
-                    name: "column3".into(),
-                    ..Column::default()
-                },
-            ],
-        };
-        ss.create_table(&test_table).await?;
-        let testrow0: Row = vec![
-            Value::String("r1".into()),
-            Value::String("a".into()),
-            Value::String("b".into()),
-        ];
-        ss.insert_row("testtable", testrow0.clone()).await?;
-        let testrow2: Row = vec![
-            Value::String("r2".into()),
-            Value::String("a".into()),
-            Value::String("c".into()),
-        ];
-        ss.insert_row("testtable", testrow2.clone()).await?;
-        let testrow4: Row = vec![
-            Value::String("r3".into()),
-            Value::String("a".into()),
-            Value::String("e".into()),
-        ];
-        ss.insert_row("testtable", testrow4).await?;
-        let testrow5: Row = vec![
-            Value::String("r4".into()),
-            Value::String("x".into()),
-            Value::String("c".into()),
-        ];
-        ss.insert_row("testtable", testrow5).await?;
-        let testrow6: Row = vec![
-            Value::String("r5".into()),
-            Value::String("x".into()),
-            Value::String("c".into()),
-        ];
-        ss.insert_row("testtable", testrow6).await?;
-        let testrow7: Row = vec![
-            Value::String("r6".into()),
-            Value::String("y".into()),
-            Value::String("d".into()),
-        ];
-        ss.insert_row("testtable", testrow7).await?;
-
-
+        let mut ss: SledStore = gen_test_db().await?;
         let scanop = Scan::new("testtable".into(), None);
-
         //expect 1st column/field = "a"
         let filterexp = Expression::Equal(
             Box::new(Expression::Field(1, None)),
@@ -220,13 +86,7 @@ mod test {
         let mut res = filterop.execute(&mut ss);
         while let Some(v) = res.next().await.transpose()? {
             println!("the output batch:{:#?}", v);
-            /*
-            match v {
-                ResultBatch::Query { columns: _, rows } => {
-                    assert_eq!(rows.len(), 2);
-                }
-                _ => panic!("invalid type"),
-            }*/
+            
         }
         Ok(())
     }
