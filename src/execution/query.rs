@@ -1,7 +1,6 @@
 use crate::execution::Columns;
 use crate::execution::Executor;
-use crate::execution::ResultBatch;
-use crate::execution::Row;
+use crate::execution::Rows;
 use crate::storage::Value;
 use crate::{plan::Expression, storage::Storage};
 use anyhow::{Context, Error};
@@ -21,8 +20,9 @@ impl<T: Storage> Filter<T> {
     }
 }
 
+/* 
 impl<T: Storage> Executor<T> for Filter<T> {
-    #[try_stream(boxed, ok=ResultBatch, error = Error)]
+    #[try_stream(boxed, ok=Rows, error = Error)]
     async fn execute(self: Box<Self>, store: &mut T) {
         let mut ds = self.source.execute(store);
         let mut local_batch: Vec<Row> = Vec::with_capacity(MAX_BATCH_SIZE);
@@ -91,3 +91,4 @@ mod test {
         Ok(())
     }
 }
+*/

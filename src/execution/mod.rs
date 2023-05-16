@@ -2,8 +2,17 @@ mod source;
 mod query;
 use crate::storage::Row;
 use crate::storage::Storage;
+use async_trait::async_trait;
 use anyhow::Error;
+use futures::StreamExt;
 use futures_async_stream::try_stream;
+use std::pin::Pin;
+use futures::Stream;
+use anyhow::Result;
+use crate::storage::Batch;
+use derivative::Derivative;
+use std::sync::Arc;
+use std::sync::mpsc::channel;
 
 
 const MAX_BATCH_SIZE: usize = 2;
@@ -14,23 +23,68 @@ pub struct Column {
     pub name: Option<String>,
 }
 pub type Columns = Vec<Column>;
+pub type Rows = Vec<Row>;
+pub type RowStream = Pin<Box<dyn Stream<Item = Result<Rows>> + Send>>;
 
-#[derive(Debug)]
-pub enum ResultBatch {
+#[derive(Derivative)]
+#[derivative(Debug)]
+pub enum ResultSet {
     Query {
         columns: Columns,
-        rows: Vec<Row>,
+        #[derivative(Debug="ignore")]
+        rows: RowStream,
     }
 }
 
 
+// print the resultset, will consume the stream
+pub async fn print_resultset(res: ResultSet) -> Result<()> {
+    match res {
+        ResultSet::Query{columns, rows}=>{
+            println!("{}", columns.iter().map(|c|c.name.as_deref().unwrap_or("?")).collect::<Vec<_>>().join("|"));
+            let mut resstream: Pin<Box<dyn Stream<Item = std::result::Result<Vec<Vec<crate::storage::Value>>, Error>> + Send>> = rows;
+            /* 
+            // for the case of synchrouns (i.e, remove async keyword of this func so we can pull data from stream)
+            let (sender, receiver) = channel();
+            tokio::runtime::Runtime::new().unwrap().block_on(async {
+                while let Some(batchrows) = resstream.next().await{
+                    sender.send(batchrows).unwrap();
+                }
+                drop(sender)
+            });
+            for batchrows in receiver {
+                let mut rows = batchrows.unwrap().into_iter();
+                while let Some(row) = rows.next() {
+                    println!("{}", row.into_iter().map(|v|format!("{}",v)).collect::<Vec<_>>().join("|"));
+                }
+            }*/
+            while let Some(batchrows) = resstream.next().await{
+                let mut rows = batchrows.unwrap().into_iter();
+                while let Some(row) = rows.next() {
+                    println!("{}", row.into_iter().map(|v|format!("{}",v)).collect::<Vec<_>>().join("|"));
+                }
+            }   
+        },
+        _=>{
+            println!("invalid result type");
+        }
+    }
+    Ok(())
+}
+
+#[async_trait]
 pub trait Executor<T: Storage> {
     // try_stream here only allow a single life time bound, if use &self will 
     // introduce another bound beside &mut T
     // here use Box<Self> will sovle it, or make store as Arc<T>
     // that is why later for each operator its new method return a Boxed object
+
+    /* 
     #[try_stream(boxed, ok=ResultBatch, error = Error)]
     async fn execute(self: Box<Self>, store: &mut T);
+    */
+
+    async fn execute(self: Box<Self>, store: Arc<T>) -> Result<ResultSet>;
 }
 
 
