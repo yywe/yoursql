@@ -9,7 +9,6 @@ use futures_async_stream::try_stream;
 use std::pin::Pin;
 use futures::Stream;
 use anyhow::Result;
-use crate::storage::Batch;
 use derivative::Derivative;
 use std::sync::Arc;
 use std::sync::mpsc::channel;
@@ -98,8 +97,8 @@ mod test {
     use crate::storage::Column;
     use crate::storage::Row;
 
-    pub async fn gen_test_db() -> Result<SledStore> {
-        let mut ss: SledStore = SledStore::init("./testdb", 2).await?;
+    pub async fn gen_test_db(pathname: String) -> Result<SledStore> {
+        let mut ss: SledStore = SledStore::init(format!("./{}", pathname).as_str(), 2).await?;
         ss.create_database(&"newdb".into()).await?;
         ss.usedb(&String::from("newdb")).await?;
         assert_eq!(1, ss.curdbid);

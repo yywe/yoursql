@@ -1,6 +1,8 @@
 use crate::storage::Value;
 use crate::storage::Row;
 use anyhow::Result;
+
+#[derive(Clone)]
 pub enum Expression {
     Constant(Value),
     // column index ,optional <optional table name, column name>
