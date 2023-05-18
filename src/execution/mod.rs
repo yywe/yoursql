@@ -24,7 +24,6 @@ pub struct Column {
 pub type Columns = Vec<Column>;
 pub type Rows = Vec<Row>;
 pub type RowStream = Pin<Box<dyn Stream<Item = Result<Rows>> + Send>>;
-
 #[derive(Derivative)]
 #[derivative(Debug)]
 pub enum ResultSet {

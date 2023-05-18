@@ -3,6 +3,7 @@ use crate::execution::Rows;
 use crate::storage::Value;
 use anyhow::Result;
 use super::ResultSet;
+use crate::execution::RowStream;
 use crate::{plan::Expression, storage::Storage};
 use anyhow::Error;
 use futures::StreamExt;
@@ -31,7 +32,7 @@ impl<T: Storage+'static+Send+Sync> Filter<T> {
         Box::new(Self { source: Some(source), predicate:predicate })
     }
     #[try_stream(boxed, ok=Rows, error = Error)]
-    async fn filter_stream(self: Box<Self>, mut input: std::pin::Pin<Box<dyn Stream<Item = std::result::Result<Vec<Vec<Value>>, Error>> + Send>>) {
+    async fn filter_stream(self: Box<Self>, mut input: RowStream) {
         let mut local_batch: Vec<Row> = Vec::with_capacity(MAX_BATCH_SIZE);
         while let Some(rows) = input.next().await.transpose()? {
             // note the error case when evaluate is ignored
@@ -70,6 +71,47 @@ impl<T: Storage+'static> Executor<T> for Filter<T> {
                 panic!("invalid result set found!");
             },
         }
+    }
+}
+
+
+pub struct Projection<T: Storage> {
+    source: Option<Box<dyn Executor<T> + Send+Sync>>,
+    expressions: Vec<(Expression, Option<String>)>,
+}
+
+impl <T: Storage> Projection<T>{
+    pub fn new(source: Box<dyn Executor<T> + Send+Sync>, expressions: Vec<(Expression, Option<String>)>) -> Box<Self> {
+        Box::new(Self{
+            source: Some(source), 
+            expressions: expressions,
+        })
+    }
+    #[try_stream(boxed, ok=Rows, error = Error)]
+    async fn project_stream(self: Box<Self>, mut input: RowStream) {
+        
+    }
+}
+
+#[async_trait]
+impl<T: Storage+'static> Executor<T> for Projection<T> {
+    async fn execute(mut self: Box<Self>, store:Arc<T>) -> Result<ResultSet> {
+        let source = std::mem::take(&mut self.source).unwrap();
+        let rs = source.execute(store).await?;  
+        match rs {
+            ResultSet::Query { columns, rows } => {
+                //todo: 1 project column header
+                let ps = self.project_stream(rows);
+                //todo: 2 project data stream
+                return Ok(ResultSet::Query {
+                    columns: columns,
+                    rows:ps,
+                })
+            },
+            _ => {
+                panic!("invalid result set found!");
+            },
+        }   
     }
 }
 
