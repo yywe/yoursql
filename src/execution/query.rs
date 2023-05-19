@@ -12,6 +12,7 @@ use std::sync::Arc;
 use crate::execution::Row;
 use futures_async_stream::try_stream;
 use futures::Stream;
+use crate::execution::Column;
 
 use super::MAX_BATCH_SIZE;
 
@@ -27,7 +28,7 @@ pub struct Filter<T: Storage> {
 
 }
 
-impl<T: Storage+'static+Send+Sync> Filter<T> {
+impl<T: Storage+'static> Filter<T> {
     pub fn new(source: Box<dyn Executor<T> + Send+Sync>, predicate: Expression) -> Box<Self> {
         Box::new(Self { source: Some(source), predicate:predicate })
     }
@@ -80,7 +81,7 @@ pub struct Projection<T: Storage> {
     expressions: Vec<(Expression, Option<String>)>,
 }
 
-impl <T: Storage> Projection<T>{
+impl <T: Storage+'static> Projection<T>{
     pub fn new(source: Box<dyn Executor<T> + Send+Sync>, expressions: Vec<(Expression, Option<String>)>) -> Box<Self> {
         Box::new(Self{
             source: Some(source), 
@@ -89,7 +90,19 @@ impl <T: Storage> Projection<T>{
     }
     #[try_stream(boxed, ok=Rows, error = Error)]
     async fn project_stream(self: Box<Self>, mut input: RowStream) {
-        
+        let mut local_batch: Vec<Row> = Vec::with_capacity(MAX_BATCH_SIZE);
+        while let Some(rows) = input.next().await.transpose()? {
+            let projectrow: Vec<Vec<Value>> = rows.iter().map(|row|{
+                self.expressions.iter().map(|(exp, _)|{exp.evaluate(Some(row)).unwrap()}).collect()
+            }).collect::<Vec<Row>>();
+            local_batch.extend(projectrow);
+            if local_batch.len() >= MAX_BATCH_SIZE {
+                yield std::mem::take(&mut local_batch)
+            }
+        }
+        if local_batch.len() > 0 {
+            yield std::mem::take(&mut local_batch)
+        }
     }
 }
 
@@ -100,11 +113,18 @@ impl<T: Storage+'static> Executor<T> for Projection<T> {
         let rs = source.execute(store).await?;  
         match rs {
             ResultSet::Query { columns, rows } => {
-                //todo: 1 project column header
+                let projcols = self.expressions.iter().map(|(exp, label)|{
+                    if let Some(col) = label {
+                        Column{name: Some(col.clone())}
+                    }else if let Expression::Field(i,_ ) = exp { // note Field itself's label is ignored
+                        columns.get(*i).cloned().unwrap_or(Column{name: None})
+                    }else{
+                        Column{name: None}
+                    }
+                }).collect();
                 let ps = self.project_stream(rows);
-                //todo: 2 project data stream
                 return Ok(ResultSet::Query {
-                    columns: columns,
+                    columns: projcols,
                     rows:ps,
                 })
             },
@@ -136,6 +156,25 @@ mod test {
         );
         let filterop: Box<Filter<SledStore>> = Filter::new(scanop, filterexp);
         let res = filterop.execute(Arc::new(ss)).await?;
+        println!("result of filter:");
+        print_resultset(res).await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_project() -> Result<()> {
+        let mut ss: SledStore = gen_test_db("tproject".into()).await?;
+        let scanop = Scan::new("testtable".into(), None);
+        //expect 1st column/field = "a"
+        let filterexp = Expression::Equal(
+            Box::new(Expression::Field(1, None)),
+            Box::new(Expression::Constant(Value::String("a".into()))),
+        );
+        let filterop: Box<Filter<SledStore>> = Filter::new(scanop, filterexp);
+        // Vec<(Expression, Option<String>)>
+        let projectop: Box<Projection<SledStore>> = Projection::new(filterop, vec![(Expression::Field(1, None), None),(Expression::Field(2, None),None)]);
+        let res = projectop.execute(Arc::new(ss)).await?;
+        println!("result of projection:");
         print_resultset(res).await?;
         Ok(())
     }

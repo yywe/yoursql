@@ -8,7 +8,6 @@ use anyhow::Result;
 use async_trait::async_trait;
 use futures_async_stream::try_stream;
 
-
 pub struct Scan {
     table: String,
     // not used yet
