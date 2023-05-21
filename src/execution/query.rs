@@ -12,6 +12,7 @@ use std::sync::Arc;
 use crate::execution::Row;
 use futures_async_stream::try_stream;
 use futures::Stream;
+use tokio::sync::Mutex;
 use crate::execution::Column;
 
 use super::MAX_BATCH_SIZE;
@@ -57,7 +58,7 @@ impl<T: Storage+'static> Filter<T> {
 
 #[async_trait]
 impl<T: Storage+'static> Executor<T> for Filter<T> {
-    async fn execute(mut self: Box<Self>, store:Arc<T>) -> Result<ResultSet> {
+    async fn execute(mut self: Box<Self>, store: Arc<Mutex<T>>) -> Result<ResultSet> {
         let source = std::mem::take(&mut self.source).unwrap();
         let rs = source.execute(store).await?;
         match rs {
@@ -108,7 +109,7 @@ impl <T: Storage+'static> Projection<T>{
 
 #[async_trait]
 impl<T: Storage+'static> Executor<T> for Projection<T> {
-    async fn execute(mut self: Box<Self>, store:Arc<T>) -> Result<ResultSet> {
+    async fn execute(mut self: Box<Self>, store: Arc<Mutex<T>>) -> Result<ResultSet> {
         let source = std::mem::take(&mut self.source).unwrap();
         let rs = source.execute(store).await?;  
         match rs {
@@ -145,6 +146,7 @@ mod test {
     use anyhow::Result;
     use crate::execution::test::gen_test_db;
     use crate::execution::print_resultset;
+    use tokio::sync::Mutex;
     #[tokio::test]
     async fn test_filter() -> Result<()> {
         let mut ss: SledStore = gen_test_db("tfilter".into()).await?;
@@ -155,7 +157,7 @@ mod test {
             Box::new(Expression::Constant(Value::String("a".into()))),
         );
         let filterop: Box<Filter<SledStore>> = Filter::new(scanop, filterexp);
-        let res = filterop.execute(Arc::new(ss)).await?;
+        let res = filterop.execute(Arc::new(Mutex::new(ss))).await?;
         println!("result of filter:");
         print_resultset(res).await?;
         Ok(())
@@ -173,7 +175,7 @@ mod test {
         let filterop: Box<Filter<SledStore>> = Filter::new(scanop, filterexp);
         // Vec<(Expression, Option<String>)>
         let projectop: Box<Projection<SledStore>> = Projection::new(filterop, vec![(Expression::Field(1, None), None),(Expression::Field(2, None),None)]);
-        let res = projectop.execute(Arc::new(ss)).await?;
+        let res = projectop.execute(Arc::new(Mutex::new(ss))).await?;
         println!("result of projection:");
         print_resultset(res).await?;
         Ok(())

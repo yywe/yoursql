@@ -1,5 +1,6 @@
 mod source;
 mod query;
+mod catalog;
 use crate::storage::Row;
 use crate::storage::Storage;
 use async_trait::async_trait;
@@ -12,6 +13,8 @@ use anyhow::Result;
 use derivative::Derivative;
 use std::sync::Arc;
 use std::sync::mpsc::channel;
+use tokio::sync::Mutex;
+use crate::storage::DbMeta;
 
 
 const MAX_BATCH_SIZE: usize = 2;
@@ -31,6 +34,18 @@ pub enum ResultSet {
         columns: Columns,
         #[derivative(Debug="ignore")]
         rows: RowStream,
+    },
+    CreateDatabase {
+        name: String,
+    },
+    ShowDatabase {
+        dblist: Vec<DbMeta>,
+    },
+    DropDatabase {
+        name: String,
+    },
+    UseDatabase {
+        name: String,
     }
 }
 
@@ -63,6 +78,21 @@ pub async fn print_resultset(res: ResultSet) -> Result<()> {
                 }
             }   
         },
+        ResultSet::CreateDatabase{name} => {
+            println!("Databaes {} is created", name)
+        },
+        ResultSet::ShowDatabase { dblist } => {
+            println!("id|name|create_time");
+            for dbmeta in dblist {
+                println!("{}|{}|{}", dbmeta.id, dbmeta.name, dbmeta.create_time)
+            }
+        },
+        ResultSet::DropDatabase { name } => {
+            println!("Databaes {} is dropped", name)
+        },
+        ResultSet::UseDatabase { name } => {
+            println!("switch to database {}", name)
+        }
         _=>{
             println!("invalid result type");
         }
@@ -82,7 +112,7 @@ pub trait Executor<T: Storage> {
     async fn execute(self: Box<Self>, store: &mut T);
     */
 
-    async fn execute(self: Box<Self>, store: Arc<T>) -> Result<ResultSet>;
+    async fn execute(self: Box<Self>, store: Arc<Mutex<T>>) -> Result<ResultSet>;
 }
 
 
