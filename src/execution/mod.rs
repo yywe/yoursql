@@ -15,6 +15,7 @@ use std::sync::Arc;
 use std::sync::mpsc::channel;
 use tokio::sync::Mutex;
 use crate::storage::DbMeta;
+use crate::storage::Table;
 
 
 const MAX_BATCH_SIZE: usize = 2;
@@ -46,7 +47,16 @@ pub enum ResultSet {
     },
     UseDatabase {
         name: String,
-    }
+    },
+    CreateTable {
+        name: String,
+    },
+    ShowTable {
+        tblist: Vec<Table>,
+    },
+    DropTable {
+        name: String,
+    },
 }
 
 
@@ -92,7 +102,19 @@ pub async fn print_resultset(res: ResultSet) -> Result<()> {
         },
         ResultSet::UseDatabase { name } => {
             println!("switch to database {}", name)
-        }
+        },
+        ResultSet::CreateTable { name } => {
+            println!("table {} created", name);
+        },
+        ResultSet::DropTable { name } => {
+            println!("table {} droped", name)
+        },
+        ResultSet::ShowTable { tblist }=>{
+            println!("name");
+            for tb in tblist {
+                println!("{}",tb.name)
+            }
+        },
         _=>{
             println!("invalid result type");
         }
