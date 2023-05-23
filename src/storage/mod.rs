@@ -1,5 +1,6 @@
 mod sled;
 use anyhow::Result;
+use anyhow::Context;
 use async_trait::async_trait;
 pub use self::sled::SledStore;
 use serde::{Deserialize, Serialize};
@@ -78,6 +79,10 @@ impl Table {
     }
     pub fn get_pk_name(&self) -> Option<String> {
         Some(self.columns.iter().find(|c|c.primary_key)?.name.clone())
+    }
+
+    pub fn get_column(&self, name: &str) -> Result<&Column> {
+        self.columns.iter().find(|c| c.name == name).context("column does not exist")
     }
 }
 

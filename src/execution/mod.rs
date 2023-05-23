@@ -1,6 +1,7 @@
 mod source;
 mod query;
 mod catalog;
+mod mutation;
 use crate::storage::Row;
 use crate::storage::Storage;
 use async_trait::async_trait;
@@ -57,6 +58,15 @@ pub enum ResultSet {
     DropTable {
         name: String,
     },
+    Insert {
+        count: u64,
+    },
+    Update{
+        count: u64,
+    },
+    Delete{
+        count: u64,
+    }
 }
 
 
@@ -114,6 +124,15 @@ pub async fn print_resultset(res: ResultSet) -> Result<()> {
             for tb in tblist {
                 println!("{}",tb.name)
             }
+        },
+        ResultSet::Insert { count } => {
+            println!("inserted {} record", count)
+        },
+        ResultSet::Update { count } => {
+            println!("updated {} record", count)
+        },
+        ResultSet::Delete { count } => {
+            println!("deleted {} record", count)
         },
         _=>{
             println!("invalid result type");
