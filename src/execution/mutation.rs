@@ -93,13 +93,14 @@ impl<T: Storage> Executor<T> for Delete<T>{
     async fn execute(mut self: Box<Self>, store: Arc<Mutex<T>>) -> Result<ResultSet>{
         let mut count = 0_u64;
         let source = std::mem::take(&mut self.source).unwrap();
-        let rs = source.execute(store).await?;
+        let rs = source.execute(store.clone()).await?;
         match rs {
             ResultSet::Query { columns, mut rows }=>{
                 while let Some(brow) = rows.next().await.transpose()?{
-                    //oops. we need row id
                     for r in brow {
-
+                        let rowid = r.id;
+                        store.lock().await.delete_row(&self.table.as_str(), rowid).await?;
+                        count +=1;
                     }
                 }
             },
@@ -121,8 +122,10 @@ mod test{
     use crate::execution::test::gen_test_db;
     use crate::plan::Expression;
     use crate::execution::source::Scan;
+    use crate::execution::query::Filter;
     #[tokio::test]
     async fn test_mutation() -> Result<()> {
+        // inser 2 rows
         let ss: SledStore = gen_test_db("tmutation".into()).await?;
         let row1 = vec![
             Expression::Constant(Value::String(String::from("r7"))),
@@ -141,6 +144,22 @@ mod test{
         let scanop = Scan::new("testtable".into(), None);
         let scanres = scanop.execute(db.clone()).await?;
         print_resultset(scanres).await?;
+
+        // now delete the row with columnc = 'f', need to construct a source filter.
+        let scanop = Scan::new("testtable".into(), None);
+        //expect last column/field = "a"
+        let filterexp = Expression::Equal(
+            Box::new(Expression::Field(2, None)),
+            Box::new(Expression::Constant(Value::String("f".into()))),
+        );
+        let filterop: Box<Filter<SledStore>> = Filter::new(scanop, filterexp);
+        let deleteop = Delete::new("testtable".into(), Some(filterop));
+        let deleteres = deleteop.execute(db.clone()).await?;
+        print_resultset(deleteres).await?;
+        let scanop = Scan::new("testtable".into(), None);
+        let scanres = scanop.execute(db.clone()).await?;
+        print_resultset(scanres).await?;
+        
         Ok(())
     }
 }
