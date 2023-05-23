@@ -2,6 +2,7 @@ mod source;
 mod query;
 mod catalog;
 mod mutation;
+use crate::storage::Batch;
 use crate::storage::Row;
 use crate::storage::Storage;
 use async_trait::async_trait;
@@ -17,6 +18,7 @@ use std::sync::mpsc::channel;
 use tokio::sync::Mutex;
 use crate::storage::DbMeta;
 use crate::storage::Table;
+use crate::storage::ScanedRow;
 
 
 const MAX_BATCH_SIZE: usize = 2;
@@ -27,8 +29,9 @@ pub struct Column {
     pub name: Option<String>,
 }
 pub type Columns = Vec<Column>;
-pub type Rows = Vec<Row>;
-pub type RowStream = Pin<Box<dyn Stream<Item = Result<Rows>> + Send>>;
+//pub type Rows = Vec<Row>;
+pub type ScanedRows = Vec<ScanedRow>;
+pub type RowStream = Pin<Box<dyn Stream<Item = Result<ScanedRows>> + Send>>;
 #[derive(Derivative)]
 #[derivative(Debug)]
 pub enum ResultSet {
@@ -75,7 +78,7 @@ pub async fn print_resultset(res: ResultSet) -> Result<()> {
     match res {
         ResultSet::Query{columns, rows}=>{
             println!("{}", columns.iter().map(|c|c.name.as_deref().unwrap_or("?")).collect::<Vec<_>>().join("|"));
-            let mut resstream: Pin<Box<dyn Stream<Item = std::result::Result<Vec<Vec<crate::storage::Value>>, Error>> + Send>> = rows;
+            let mut resstream: Pin<Box<dyn Stream<Item = std::result::Result<Vec<ScanedRow>, Error>> + Send>> = rows;
             /* 
             // for the case of synchrouns (i.e, remove async keyword of this func so we can pull data from stream)
             let (sender, receiver) = channel();
@@ -92,9 +95,9 @@ pub async fn print_resultset(res: ResultSet) -> Result<()> {
                 }
             }*/
             while let Some(batchrows) = resstream.next().await{
-                let mut rows = batchrows.unwrap().into_iter();
+                let mut rows= batchrows.unwrap().into_iter();
                 while let Some(row) = rows.next() {
-                    println!("{}", row.into_iter().map(|v|format!("{}",v)).collect::<Vec<_>>().join("|"));
+                    println!("{}", row.values.into_iter().map(|v|format!("{}",v)).collect::<Vec<_>>().join("|"));
                 }
             }   
         },

@@ -11,6 +11,7 @@ use sled::Iter;
 use std::collections::HashSet;
 use std::path::Path;
 use tracing::info;
+use crate::storage::ScanedRow;
 
 pub struct SledStore {
     pub root: Box<Path>,
@@ -458,16 +459,25 @@ pub struct BatchIter {
 }
 
 impl Iterator for BatchIter {
-    type Item = Result<Vec<Row>>;
+    type Item = Result<Vec<ScanedRow>>;
     fn next(&mut self) -> Option<Self::Item> {
-        let mut local_batch: Vec<Row> = Vec::with_capacity(self.max_size);
+        let mut local_batch: Vec<ScanedRow> = Vec::with_capacity(self.max_size);
         while let Some(res) = self.rowiter.next() {
             match res {
-                Ok((_, value)) => {
-                    let row = bincode::deserialize(&value);
-                    match row {
-                        Ok(row) => {
-                            local_batch.push(row);
+                Ok((key, value)) => {
+                    //todo: parse rowid, format table/{}/{}
+                    let rowkey = std::str::from_utf8(&key).unwrap();
+                    let parts: Vec<&str> = rowkey.split('/').collect();
+                    let rowid = match parts.last().unwrap_or(&"").parse::<u64>(){
+                        Ok(num)=> num,
+                        Err(e)=>{
+                            return Some(Err(anyhow!(e.to_string())));
+                        }
+                    };
+                    let res = bincode::deserialize(&value);
+                    match res {
+                        Ok(rowvalues) => {
+                            local_batch.push(ScanedRow{id:rowid, values:rowvalues});
                             if local_batch.len() >= self.max_size {
                                 return Some(Ok(local_batch));
                             }
@@ -625,6 +635,7 @@ mod test {
         let mut scanres = ss.scan_table("testtable").await?;
         while let Some(batch) = scanres.next() {
             assert_eq!(batch.is_ok(), true);
+            println!("{:?}",batch)
         }
         ss.drop_table("testtable").await?;
         let tables = ss.listtbls().await?;

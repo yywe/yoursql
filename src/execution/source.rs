@@ -1,8 +1,10 @@
 use super::Column;
 use super::ResultSet;
 use crate::execution::Executor;
-use crate::execution::Rows;
+//use crate::execution::Rows;
+use crate::execution::ScanedRows;
 use crate::execution::Arc;
+use crate::storage::Batch;
 use crate::{plan::Expression, storage::Storage};
 use anyhow::Result;
 use async_trait::async_trait;
@@ -22,7 +24,7 @@ impl Scan {
 }
 
 impl Scan {
-    #[try_stream(boxed, ok=Rows, error = anyhow::Error)]
+    #[try_stream(boxed, ok=ScanedRows, error = anyhow::Error)]
     async fn pull_stream<T: Storage + 'static>(self: Box<Self>, store: Arc<Mutex<T>>) {
         let mutexgard = store.lock().await;
         let mut dbscan =mutexgard.scan_table(self.table.as_str()).await?;

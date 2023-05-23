@@ -1,5 +1,6 @@
 use crate::execution::Executor;
-use crate::execution::Rows;
+use crate::execution::ScanedRows;
+use crate::execution::ScanedRow;
 use crate::storage::Value;
 use anyhow::Result;
 use super::ResultSet;
@@ -33,13 +34,13 @@ impl<T: Storage+'static> Filter<T> {
     pub fn new(source: Box<dyn Executor<T> + Send+Sync>, predicate: Expression) -> Box<Self> {
         Box::new(Self { source: Some(source), predicate:predicate })
     }
-    #[try_stream(boxed, ok=Rows, error = Error)]
+    #[try_stream(boxed, ok=ScanedRows, error = Error)]
     async fn filter_stream(self: Box<Self>, mut input: RowStream) {
-        let mut local_batch: Vec<Row> = Vec::with_capacity(MAX_BATCH_SIZE);
+        let mut local_batch: Vec<ScanedRow> = Vec::with_capacity(MAX_BATCH_SIZE);
         while let Some(rows) = input.next().await.transpose()? {
             // note the error case when evaluate is ignored
             let filteredrow = rows.into_iter().filter_map(|row| {
-                match self.predicate.evaluate(Some(&row)).ok() {
+                match self.predicate.evaluate(Some(&row.values)).ok() {
                     Some(Value::Boolean(true)) => Some(row),
                     _ => None,
                 }
@@ -89,13 +90,16 @@ impl <T: Storage+'static> Projection<T>{
             expressions: expressions,
         })
     }
-    #[try_stream(boxed, ok=Rows, error = Error)]
+    #[try_stream(boxed, ok=ScanedRows, error = Error)]
     async fn project_stream(self: Box<Self>, mut input: RowStream) {
-        let mut local_batch: Vec<Row> = Vec::with_capacity(MAX_BATCH_SIZE);
+        let mut local_batch: Vec<ScanedRow> = Vec::with_capacity(MAX_BATCH_SIZE);
         while let Some(rows) = input.next().await.transpose()? {
-            let projectrow: Vec<Vec<Value>> = rows.iter().map(|row|{
-                self.expressions.iter().map(|(exp, _)|{exp.evaluate(Some(row)).unwrap()}).collect()
-            }).collect::<Vec<Row>>();
+            let projectrow = rows.iter().map(|row|{
+                ScanedRow{
+                    id: row.id,
+                    values: self.expressions.iter().map(|(exp, _)|{exp.evaluate(Some(&row.values)).unwrap()}).collect(),
+                }
+            }).collect::<Vec<ScanedRow>>();
             local_batch.extend(projectrow);
             if local_batch.len() >= MAX_BATCH_SIZE {
                 yield std::mem::take(&mut local_batch)

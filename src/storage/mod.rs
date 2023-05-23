@@ -97,8 +97,16 @@ pub struct Column {
     pub references: Option<String>,
 }
 
+// this only means the the values, no row id
 pub type Row = Vec<Value>;
-pub type Batch = Box<dyn Iterator<Item = Result<Vec<Vec<Value>>>> + Send>;
+
+// early design issue. row should has id
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct ScanedRow {
+    pub id: u64,
+    pub values: Row,
+}
+pub type Batch = Box<dyn Iterator<Item = Result<Vec<ScanedRow>>> + Send>;
 
 #[async_trait]
 pub trait Storage: Sync + Send{
