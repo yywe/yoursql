@@ -1,5 +1,6 @@
 mod sled;
 use anyhow::Result;
+use anyhow::Context;
 use async_trait::async_trait;
 pub use self::sled::SledStore;
 use serde::{Deserialize, Serialize};
@@ -79,6 +80,10 @@ impl Table {
     pub fn get_pk_name(&self) -> Option<String> {
         Some(self.columns.iter().find(|c|c.primary_key)?.name.clone())
     }
+
+    pub fn get_column(&self, name: &str) -> Result<&Column> {
+        self.columns.iter().find(|c| c.name == name).context("column does not exist")
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Default, PartialEq)]
@@ -92,11 +97,19 @@ pub struct Column {
     pub references: Option<String>,
 }
 
+// this only means the the values, no row id
 pub type Row = Vec<Value>;
-pub type Batch = Box<dyn Iterator<Item = Result<Vec<Vec<Value>>>>>;
+
+// early design issue. row should has id
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct ScanedRow {
+    pub id: u64,
+    pub values: Row,
+}
+pub type Batch = Box<dyn Iterator<Item = Result<Vec<ScanedRow>>> + Send>;
 
 #[async_trait]
-pub trait Storage {
+pub trait Storage: Sync + Send{
     // methods for database level operation
     async fn create_database(&self, database_name: &String) ->Result<()>;
     async fn drop_database(&self, database_name: &String) -> Result<()>;
@@ -107,6 +120,7 @@ pub trait Storage {
     async fn create_table(&self, table: &Table) -> Result<()>;
     async fn listtbls(&self) -> Result<Vec<Table>>;
     async fn drop_table(&self, name: &str) -> Result<()>;
+    async fn get_table_def(&self, name: &str) -> Result<Table>;
 
     // methods for table data operation
     async fn insert_row(&self, table: &str, row: Row) -> Result<u64>;
