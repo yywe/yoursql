@@ -1,11 +1,11 @@
 use super::Column;
 use super::ResultSet;
-use crate::execution::Executor;
+use crate::executor::Executor;
 //use crate::execution::Rows;
-use crate::execution::ScanedRows;
-use crate::execution::Arc;
+use crate::executor::ScanedRows;
+use crate::executor::Arc;
 use crate::storage::Batch;
-use crate::{plan::Expression, storage::Storage};
+use crate::{planner::Expression, storage::Storage};
 use anyhow::Result;
 use async_trait::async_trait;
 use futures::FutureExt;
@@ -57,10 +57,10 @@ impl<T: Storage+'static> Executor<T> for Scan {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::execution::print_resultset;
+    use crate::executor::print_resultset;
     use crate::storage::SledStore;
     use anyhow::Result;
-    use crate::execution::test::gen_test_db;
+    use crate::executor::test::gen_test_db;
     use tokio::sync::Mutex;
     #[tokio::test]
     async fn test_scan() -> Result<()> {

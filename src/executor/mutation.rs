@@ -1,8 +1,8 @@
 use super::ResultSet;
-use crate::execution::Executor;
-use crate::execution::Row;
-use crate::execution::Storage;
-use crate::plan::Expression;
+use crate::executor::Executor;
+use crate::executor::Row;
+use crate::executor::Storage;
+use crate::planner::Expression;
 use crate::storage::Table;
 use crate::storage::Value;
 use anyhow::Result;
@@ -221,11 +221,11 @@ impl<T: Storage> Executor<T> for Update<T> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::execution::print_resultset;
-    use crate::execution::query::Filter;
-    use crate::execution::source::Scan;
-    use crate::execution::test::gen_test_db;
-    use crate::plan::Expression;
+    use crate::executor::print_resultset;
+    use crate::executor::query::Filter;
+    use crate::executor::source::Scan;
+    use crate::executor::test::gen_test_db;
+    use crate::planner::Expression;
     use crate::storage::Column;
     use crate::storage::SledStore;
     use anyhow::Result;

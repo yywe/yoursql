@@ -1,6 +1,6 @@
-use crate::execution::Storage;
+use crate::executor::Storage;
 use async_trait::async_trait;
-use crate::execution::Executor;
+use crate::executor::Executor;
 use std::sync::Arc;
 use anyhow::Result;
 use tokio::sync::Mutex;
@@ -118,11 +118,11 @@ impl<T: Storage+'static> Executor<T> for ShowTable {
 #[cfg(test)]
 mod test{
     use super::*;
-    use crate::execution::print_resultset;
+    use crate::executor::print_resultset;
     use crate::storage::SledStore;
     use anyhow::Result;
     use crate::storage::Column;
-    use crate::execution::test::gen_test_db;
+    use crate::executor::test::gen_test_db;
     #[tokio::test]
     async fn test_db_op() -> Result<()> {
         let ss: SledStore = gen_test_db("tdbop".into()).await?;

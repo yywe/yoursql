@@ -1,20 +1,20 @@
-use crate::execution::Executor;
-use crate::execution::ScanedRows;
-use crate::execution::ScanedRow;
+use crate::executor::Executor;
+use crate::executor::ScanedRows;
+use crate::executor::ScanedRow;
 use crate::storage::Value;
 use anyhow::Result;
 use super::ResultSet;
-use crate::execution::RowStream;
-use crate::{plan::Expression, storage::Storage};
+use crate::executor::RowStream;
+use crate::{planner::Expression, storage::Storage};
 use anyhow::Error;
 use futures::StreamExt;
 use async_trait::async_trait;
 use std::sync::Arc;
-use crate::execution::Row;
+use crate::executor::Row;
 use futures_async_stream::try_stream;
 use futures::Stream;
 use tokio::sync::Mutex;
-use crate::execution::Column;
+use crate::executor::Column;
 
 use super::MAX_BATCH_SIZE;
 
@@ -143,13 +143,13 @@ impl<T: Storage+'static> Executor<T> for Projection<T> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::execution::source::Scan;
-    use crate::plan::Expression;
+    use crate::executor::source::Scan;
+    use crate::planner::Expression;
     use crate::storage::SledStore;
     use crate::storage::Value;
     use anyhow::Result;
-    use crate::execution::test::gen_test_db;
-    use crate::execution::print_resultset;
+    use crate::executor::test::gen_test_db;
+    use crate::executor::print_resultset;
     use tokio::sync::Mutex;
     #[tokio::test]
     async fn test_filter() -> Result<()> {

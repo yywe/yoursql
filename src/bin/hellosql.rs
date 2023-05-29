@@ -1,7 +1,7 @@
 use anyhow::Result;
 use tracing::{debug, info, span, Level};
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
-use yoursql::execution::Columns;
+use yoursql::executor::Columns;
 use yoursql::storage::Column;
 use yoursql::storage::Row;
 use yoursql::storage::Table;
