@@ -1,8 +1,13 @@
 use crate::storage::Value;
 use crate::storage::Row;
 use anyhow::Result;
+mod planner;
+use sqlparser::ast;
+use crate::storage::Storage;
 
-#[derive(Clone)]
+use planner::Planner;
+
+#[derive(Clone, Debug)]
 pub enum Expression {
     Constant(Value),
     // column index ,optional <optional table name, column name>
@@ -11,6 +16,11 @@ pub enum Expression {
     Equal(Box<Expression>, Box<Expression>),
 }
 
+#[derive(Debug)]
+pub struct Plan(pub Node);
+
+
+#[derive(Debug)]
 pub enum Node {
     Scan {
         table: String,
@@ -38,5 +48,30 @@ impl Expression {
                 }
             },
         })
+    }
+}
+
+impl Plan {
+    pub fn build<S: Storage>(statement: ast::Statement, store: &S) ->Result<Self> {
+        Planner::new(store).build(statement)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::storage::SledStore;
+    use crate::parser::parse;
+    #[tokio::test]
+    async fn test_plan() -> Result<()> {
+        let mut ss: SledStore = SledStore::init(format!("./testplandb", ).as_str(), 2).await?;
+        let sql = "SELECT a, b, 123, myfunc(b) \
+        FROM table_1 \
+        WHERE a > b AND b < 100 \
+        ORDER BY a DESC, b";
+        let astvec = parse(sql)?;
+        let ast = astvec[0].clone();
+        let plan = Plan::build(ast, &ss)?;
+        Ok(())
     }
 }
