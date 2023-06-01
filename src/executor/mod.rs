@@ -2,6 +2,7 @@ mod source;
 mod query;
 mod catalog;
 mod mutation;
+use crate::planner::Node;
 use crate::storage::Batch;
 use crate::storage::Row;
 use crate::storage::Storage;
@@ -19,7 +20,8 @@ use tokio::sync::Mutex;
 use crate::storage::DbMeta;
 use crate::storage::Table;
 use crate::storage::ScanedRow;
-
+use crate::executor::catalog::CreateTable;
+use crate::executor::source::Scan;
 
 const MAX_BATCH_SIZE: usize = 2;
 
@@ -159,6 +161,14 @@ pub trait Executor<T: Storage> {
     async fn execute(self: Box<Self>, store: Arc<Mutex<T>>) -> Result<ResultSet>;
 }
 
+impl<T: Storage + 'static> dyn Executor<T> {
+    pub fn build(node: Node) -> Box<dyn Executor<T>> {
+        match node {
+            Node::CreateTable { table }=>CreateTable::new(table),
+            Node::Scan { table, alias:_, filter }=>Scan::new(table, filter),
+        }
+    }
+}
 
 #[cfg(test)]
 mod test {

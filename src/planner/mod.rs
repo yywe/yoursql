@@ -4,6 +4,11 @@ use anyhow::Result;
 mod planner;
 use sqlparser::ast;
 use crate::storage::Storage;
+use crate::storage::Table;
+use crate::executor::ResultSet;
+use crate::executor::Executor;
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
 use planner::Planner;
 
@@ -26,6 +31,9 @@ pub enum Node {
         table: String,
         alias: Option<String>,
         filter: Option<Expression>,
+    },
+    CreateTable {
+        table: Table,
     }
 }
 
@@ -52,8 +60,11 @@ impl Expression {
 }
 
 impl Plan {
-    pub fn build<S: Storage>(statement: ast::Statement, store: &S) ->Result<Self> {
+    pub fn build<T: Storage>(statement: ast::Statement, store: &T) ->Result<Self> {
         Planner::new(store).build(statement)
+    }
+    pub async fn execute<T: Storage + 'static>(self, store: Arc<Mutex<T>>) -> Result<ResultSet> {
+        <dyn Executor<T>>::build(self.0).execute(store).await
     }
 }
 
@@ -62,16 +73,16 @@ mod test {
     use super::*;
     use crate::storage::SledStore;
     use crate::parser::parse;
+    use crate::executor::print_resultset;
     #[tokio::test]
     async fn test_plan() -> Result<()> {
         let mut ss: SledStore = SledStore::init(format!("./testplandb", ).as_str(), 2).await?;
-        let sql = "SELECT a, b, 123, myfunc(b) \
-        FROM table_1 \
-        WHERE a > b AND b < 100 \
-        ORDER BY a DESC, b";
+        let sql = "create table tbl1(id int)";
         let astvec = parse(sql)?;
         let ast = astvec[0].clone();
         let plan = Plan::build(ast, &ss)?;
+        let ans = plan.execute(Arc::new(Mutex::new(ss))).await?;
+        print_resultset(ans).await?;
         Ok(())
     }
 }
