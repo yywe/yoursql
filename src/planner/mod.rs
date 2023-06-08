@@ -34,6 +34,11 @@ pub enum Node {
     },
     CreateTable {
         table: Table,
+    },
+    Insert {
+        table: String,
+        columns: Vec<String>,
+        rows: Vec<Vec<Expression>>,
     }
 }
 
@@ -60,8 +65,8 @@ impl Expression {
 }
 
 impl Plan {
-    pub fn build<T: Storage>(statement: ast::Statement, store: &T) ->Result<Self> {
-        Planner::new(store).build(statement)
+    pub async fn build<T: Storage>(statement: ast::Statement, store: Arc<Mutex<T>>) ->Result<Self> {
+        Planner::new(store).build(statement).await
     }
     pub async fn execute<T: Storage + 'static>(self, store: Arc<Mutex<T>>) -> Result<ResultSet> {
         <dyn Executor<T>>::build(self.0).execute(store).await
@@ -77,11 +82,20 @@ mod test {
     #[tokio::test]
     async fn test_plan() -> Result<()> {
         let mut ss: SledStore = SledStore::init(format!("./testplandb", ).as_str(), 2).await?;
-        let sql = "create table tbl1(id int)";
+        let sql = "create table tbl1(id int, age int)";
         let astvec = parse(sql)?;
         let ast = astvec[0].clone();
-        let plan = Plan::build(ast, &ss)?;
-        let ans = plan.execute(Arc::new(Mutex::new(ss))).await?;
+        let db = Arc::new(Mutex::new(ss));
+        let plan = Plan::build(ast, db.clone()).await?;
+        let ans = plan.execute(db.clone()).await?;
+        print_resultset(ans).await?;
+        // not currently each statement only insert o1 record,
+        // cannot parse multiple rows like: insert into tbl1 values ((1,10),(2,20))
+        let insert_sql = "insert into tbl1 values (1,10)";
+        let astvec = parse(insert_sql)?;
+        let ast = astvec[0].clone();
+        let plan = Plan::build(ast, db.clone()).await?;
+        let ans = plan.execute(db.clone()).await?;
         print_resultset(ans).await?;
         Ok(())
     }

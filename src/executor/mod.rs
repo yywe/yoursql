@@ -22,6 +22,7 @@ use crate::storage::Table;
 use crate::storage::ScanedRow;
 use crate::executor::catalog::CreateTable;
 use crate::executor::source::Scan;
+use crate::executor::mutation::Insert;
 
 const MAX_BATCH_SIZE: usize = 2;
 
@@ -166,6 +167,7 @@ impl<T: Storage + 'static> dyn Executor<T> {
         match node {
             Node::CreateTable { table }=>CreateTable::new(table),
             Node::Scan { table, alias:_, filter }=>Scan::new(table, filter),
+            Node::Insert { table, columns, rows }=>Insert::new(table, columns, rows),
         }
     }
 }

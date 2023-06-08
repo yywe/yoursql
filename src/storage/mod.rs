@@ -18,7 +18,7 @@ pub struct DbMeta {
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct IndexValue(HashSet<u64>);
 
-#[derive(Serialize, Deserialize, Debug, Default, PartialEq)]
+#[derive(Serialize, Deserialize,Clone, Debug, Default, PartialEq)]
 pub enum DataType {
     Boolean,
     Integer,
@@ -88,6 +88,9 @@ impl Table {
             .iter()
             .find(|c| c.name == name)
             .context("column does not exist")
+    }
+    pub fn get_column_by_index(&self, k: usize) -> Result<&Column> {
+        Ok(&self.columns[k])
     }
 }
 
