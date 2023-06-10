@@ -39,7 +39,15 @@ pub enum Node {
         table: String,
         columns: Vec<String>,
         rows: Vec<Vec<Expression>>,
-    }
+    },
+    Filter {
+        source: Box<Node>,
+        predicate: Expression,
+    },
+    Projection {
+        source: Box<Node>,
+        expression: Vec<(Expression, Option<String>)>,
+    },
 }
 
 impl Expression {
@@ -97,6 +105,22 @@ mod test {
         let plan = Plan::build(ast, db.clone()).await?;
         let ans = plan.execute(db.clone()).await?;
         print_resultset(ans).await?;
+
+        let insert_sql = "insert into tbl1 values (2,11)";
+        let astvec = parse(insert_sql)?;
+        let ast = astvec[0].clone();
+        let plan = Plan::build(ast, db.clone()).await?;
+        let ans = plan.execute(db.clone()).await?;
+        print_resultset(ans).await?;
+
+        let query_sql = "select id, age from tbl1";
+        let astvec = parse(query_sql)?;
+        let ast = astvec[0].clone();
+        let plan = Plan::build(ast, db.clone()).await?;
+        let ans = plan.execute(db.clone()).await?;
+        print_resultset(ans).await?;
+
         Ok(())
+
     }
 }
