@@ -13,6 +13,7 @@ use std::path::Path;
 use tracing::info;
 use crate::storage::ScanedRow;
 
+#[derive(Clone)]
 pub struct SledStore {
     pub root: Box<Path>,
     pub db: Db,
