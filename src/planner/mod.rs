@@ -35,6 +35,7 @@ pub enum Node {
     CreateTable {
         table: Table,
     },
+    ShowTable,
     Insert {
         table: String,
         columns: Vec<String>,

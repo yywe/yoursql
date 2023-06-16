@@ -148,6 +148,9 @@ impl<S: Storage> Planner<S> {
                 }
                 Ok(root)
             },
+            ast::Statement::ShowTables {..}=>{
+                Ok(Node::ShowTable)
+            }
             _=> return Err(anyhow!("unsupported statment yet:{:?}", statement))
         }
     }

@@ -26,6 +26,8 @@ use crate::executor::query::Filter;
 use crate::executor::mutation::Insert;
 use crate::executor::query::Projection;
 
+use self::catalog::ShowTable;
+
 
 const MAX_BATCH_SIZE: usize = 2;
 
@@ -173,6 +175,7 @@ impl<T: Storage + 'static> dyn Executor<T> {
             Node::Insert { table, columns, rows }=>Insert::new(table, columns, rows),
             Node::Filter { source, predicate } => Filter::new(Self::build(*source), predicate),
             Node::Projection { source, expression } => Projection::new(Self::build(*source), expression),
+            Node::ShowTable => ShowTable::new(),
         }
     }
 }
