@@ -10,9 +10,10 @@ Currently, it does not differentiate logic plan and physical plan, and there is 
 Todo list:
 * Support Join.
 * Support Aggregation and other operator like order and limit, etc.
+* Add optimizer.
 * Support MVCC concurrent control.
 * Enrich the expressions, currently it is very limited.
-* refactor the codebase, some design is not nessesary, and some design needs to change.
+* Refactor the codebase, some design is not nessesary, and some design needs to change.
 
 Quick Simple Demo:
 
