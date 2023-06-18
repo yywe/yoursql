@@ -26,6 +26,7 @@ use crate::executor::query::Filter;
 use crate::executor::mutation::Insert;
 use crate::executor::query::Projection;
 
+use self::catalog::DropTable;
 use self::catalog::ShowTable;
 
 
@@ -176,6 +177,7 @@ impl<T: Storage + 'static> dyn Executor<T> {
             Node::Filter { source, predicate } => Filter::new(Self::build(*source), predicate),
             Node::Projection { source, expression } => Projection::new(Self::build(*source), expression),
             Node::ShowTable => ShowTable::new(),
+            Node::DropTable { table }=>{DropTable::new(table)},
         }
     }
 }

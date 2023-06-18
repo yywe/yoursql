@@ -133,7 +133,11 @@ impl<S: Storage> Planner<S> {
                                         let builtexpr = self.build_expression(expr, &tabledef)?;
                                         let builtalias = alias.value;
                                         exprs.push((builtexpr, Some(builtalias)));
-                                    }
+                                    },
+                                    sqlparser::ast::SelectItem::Wildcard(_) =>{
+                                        // In this case, skip project node, i.e, get all column
+                                        return Ok(root);
+                                    },
                                     _=>{
                                             return Err(anyhow!("unsupported select item yet"));
                                     }
@@ -150,7 +154,20 @@ impl<S: Storage> Planner<S> {
             },
             ast::Statement::ShowTables {..}=>{
                 Ok(Node::ShowTable)
-            }
+            },
+            ast::Statement::Drop { object_type, names, ..}=>{
+                match object_type {
+                    sqlparser::ast::ObjectType::Table =>{}
+                    _=>{
+                        return Err(anyhow!("unsupported drop type {:?}", object_type));
+                    }
+                }
+                if names.len()>1 {
+                    return Err(anyhow!("only one table can be dropped at at time."));
+                }
+                let tblname = names[0].0[0].value.clone();
+                Ok(Node::DropTable { table: tblname })
+            },
             _=> return Err(anyhow!("unsupported statment yet:{:?}", statement))
         }
     }
