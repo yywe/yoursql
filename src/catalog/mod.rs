@@ -24,3 +24,9 @@ pub trait Catalog {
 pub struct CatalogSet {
     pub catalogs: HashMap<String, Arc<dyn Catalog>>,
 }
+
+impl CatalogSet {
+    fn catalog_names(&self) -> Vec<String> {
+        self.catalogs.iter().map(|(k,_)|k.clone()).collect()
+    }
+}
