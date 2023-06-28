@@ -1,7 +1,7 @@
-use arrow_schema::SchemaRef;
+use crate::common::types::TableRef;
 use async_trait::async_trait;
 
 #[async_trait]
 pub trait Table {
-    fn schema(&self) -> SchemaRef;
+    fn get_table(&self) -> TableRef;
 }

@@ -1,11 +1,10 @@
-use crate::common::{column::Column, scalar::ScalarValue};
+use crate::common::{column::Column, types::DataValue};
 pub enum Expr {
     Alias(Box<Expr>, String),
     Column(Column),
-    Literal(ScalarValue),
+    Literal(DataValue),
     BinaryExpr(BinaryExpr),
 }
-
 
 pub struct BinaryExpr {
     pub left: Box<Expr>,
