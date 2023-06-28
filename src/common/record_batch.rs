@@ -1,7 +1,7 @@
 use crate::common::types::DataType;
-use crate::common::types::TableRef;
+use crate::common::types::Fields;
 #[derive(Clone, Debug)]
 pub struct RecordBatch {
-    schema: TableRef,
+    header: Fields,
     rows: Vec<Vec<DataType>>,
 }
