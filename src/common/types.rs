@@ -1,5 +1,8 @@
+use anyhow::Context;
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::ops::Deref;
 use std::sync::Arc;
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -56,7 +59,6 @@ pub enum DataType {
     Time64Nanosecond,
 }
 
-
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct Field {
     name: String,
@@ -64,18 +66,113 @@ pub struct Field {
     nullable: bool,
     metadata: HashMap<String, String>,
 }
+
+impl Field {
+    pub fn new(name: impl Into<String>, data_type: DataType, nullable: bool) -> Self {
+        Field {
+            name: name.into(),
+            data_type,
+            nullable,
+            metadata: HashMap::default(),
+        }
+    }
+    pub fn name(&self) -> &String {
+        &self.name
+    }
+
+    pub fn data_type(&self) -> &DataType {
+        &self.data_type
+    }
+
+    pub fn is_nullable(&self) -> bool {
+        self.nullable
+    }
+}
+
 pub type FieldRef = Arc<Field>;
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct Fields(Arc<[FieldRef]>);
 
+impl Fields {
+    pub fn find(&self, name: &str) -> Option<(usize, &FieldRef)> {
+        self.0.iter().enumerate().find(|(_, f)| f.name() == name)
+    }
+    pub fn empty() -> Self {
+        Self(Arc::new([]))
+    }
+    pub fn project(&self, indices: &[usize]) -> Result<Fields> {
+        let new_fields = indices
+            .iter()
+            .map(|i| {
+                self.0.get(*i).cloned().context(format!(
+                    "project index {} out of bounds, max {}",
+                    i,
+                    self.0.len()
+                ))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(Fields(new_fields.into()))
+    }
+}
+
+impl From<Vec<FieldRef>> for Fields {
+    fn from(value: Vec<FieldRef>) -> Self {
+        Self(value.into())
+    }
+}
+
+impl From<Vec<Field>> for Fields {
+    fn from(value: Vec<Field>) -> Self {
+        value.into_iter().collect()
+    }
+}
+impl FromIterator<Field> for Fields {
+    fn from_iter<T: IntoIterator<Item = Field>>(iter: T) -> Self {
+        iter.into_iter().map(Arc::new).collect()
+    }
+}
+impl FromIterator<FieldRef> for Fields {
+    fn from_iter<T: IntoIterator<Item = FieldRef>>(iter: T) -> Self {
+        Self(iter.into_iter().collect())
+    }
+}
+
+impl Default for Fields {
+    fn default() -> Self {
+        Self::empty()
+    }
+}
+
+impl Deref for Fields {
+    type Target = [FieldRef];
+    fn deref(&self) -> &Self::Target {
+        self.0.as_ref()
+    }
+}
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-pub struct TableDef{
+pub struct TableDef {
     pub fields: Fields,
     pub metadata: HashMap<String, String>,
 }
 
 pub type TableRef = Arc<TableDef>;
 
-
+impl TableDef {
+    pub fn empty() -> Self {
+        Self {
+            fields: Default::default(),
+            metadata: HashMap::new(),
+        }
+    }
+    pub fn fields(&self) -> &Fields {
+        &self.fields
+    }
+    pub fn project(&self, indices: &[usize]) -> Result<TableDef> {
+        Ok(Self {
+            fields: self.fields.project(indices)?,
+            metadata: self.metadata.clone(),
+        })
+    }
+}
