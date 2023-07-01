@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc};
 use std::sync::Arc;
 use std::sync::RwLock;
-use crate::catalog::CatalogSet;
+use crate::catalog::CatalogList;
 use crate::common::config::ConfigOptions;
 
 #[derive(Clone)]
@@ -14,7 +14,7 @@ pub struct SessionContext {
 #[derive(Clone)]
 pub struct SessionState {
     session_id: String,
-    catalogs: Arc<CatalogSet>,
+    catalogs: Arc<dyn CatalogList>,
     config: ConfigOptions,
 }
 

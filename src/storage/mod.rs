@@ -9,7 +9,7 @@ use std::sync::Arc;
 mod empty;
 
 #[async_trait]
-pub trait Table {
+pub trait Table: Sync + Send{
     fn get_table(&self) -> TableRef;
     fn as_any(&self) -> &dyn Any;
     async fn scan(&self, state: &SessionState, projection: Option<&Vec<usize>>, filters: &[Expr])->Result<Arc<dyn ExecutionPlan>>;
