@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 
 mod empty;
+mod memory;
 
 #[async_trait]
 pub trait Table: Sync + Send{
