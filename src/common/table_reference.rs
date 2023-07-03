@@ -1,3 +1,4 @@
+use super::utils::parse_identifiers_normalized;
 use std::borrow::Cow;
 
 pub struct ResolvedTableReference<'a> {
@@ -60,6 +61,51 @@ impl<'a> TableReference<'a> {
         }
     }
 
+    pub fn to_owned_reference(&self) -> OwnedTableReference {
+        match self {
+            Self::Full {
+                catalog,
+                schema,
+                table,
+            } => OwnedTableReference::Full {
+                catalog: catalog.to_string().into(),
+                schema: schema.to_string().into(),
+                table: table.to_string().into(),
+            },
+            Self::Partial { schema, table } => OwnedTableReference::Partial {
+                schema: schema.to_string().into(),
+                table: table.to_string().into(),
+            },
+            Self::Bare { table } => OwnedTableReference::Bare {
+                table: table.to_string().into(),
+            },
+        }
+    }
+
+    pub fn table_name(&self) -> &str {
+        match self {
+            Self::Full { table, .. } | Self::Partial { table, .. } | Self::Bare { table } => table,
+        }
+    }
+    pub fn parse_str(s: &'a str) -> Self {
+        let mut parts = parse_identifiers_normalized(s);
+        match parts.len() {
+            1 => Self::Bare {
+                table: parts.remove(0).into(),
+            },
+            2 => Self::Partial {
+                schema: parts.remove(0).into(),
+                table: parts.remove(0).into(),
+            },
+            3 => Self::Full {
+                catalog: parts.remove(0).into(),
+                schema: parts.remove(0).into(),
+                table: parts.remove(0).into(),
+            },
+            _ => Self::Bare { table: s.into() },
+        }
+    }
+
     pub fn resolve(
         self,
         default_catalog: &'a str,
@@ -86,5 +132,17 @@ impl<'a> TableReference<'a> {
                 table,
             },
         }
+    }
+}
+
+impl From<String> for OwnedTableReference {
+    fn from(s: String) -> Self {
+        TableReference::parse_str(&s).to_owned_reference()
+    }
+}
+
+impl<'a> From<&'a str> for TableReference<'a> {
+    fn from(s: &'a str) -> Self {
+        Self::parse_str(s)
     }
 }

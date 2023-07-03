@@ -3,11 +3,16 @@ use crate::catalog::CatalogList;
 use crate::catalog::MemoryCatalog;
 use crate::catalog::MemoryCatalogList;
 use crate::catalog::MemorySchema;
+use crate::catalog::Schema;
 use crate::common::config::ConfigOptions;
+use crate::common::table_reference::ResolvedTableReference;
+use crate::common::table_reference::TableReference;
+use crate::storage::Table;
+use anyhow::Context;
+use anyhow::Result;
 use chrono::{DateTime, Utc};
-use sled::Config;
-use std::sync::Arc;
 use parking_lot::RwLock;
+use std::sync::Arc;
 use uuid::Uuid;
 
 #[derive(Clone)]
@@ -43,7 +48,31 @@ impl SessionState {
         &self.session_id
     }
 
-    
+    pub fn resolve_table_ref<'a>(
+        &'a self,
+        table_ref: impl Into<TableReference<'a>>,
+    ) -> ResolvedTableReference<'a> {
+        let catalog = &self.catalogs;
+        table_ref.into().resolve(
+            &self.config.catalog.default_catalog,
+            &self.config.catalog.default_schema,
+        )
+    }
+
+    pub fn schema_for_ref<'a>(
+        &'a self,
+        table_ref: impl Into<TableReference<'a>>,
+    ) -> Result<Arc<dyn Schema>> {
+        let resolved_ref = self.resolve_table_ref(table_ref);
+        self.catalogs
+            .catalog(&resolved_ref.catalog)
+            .context(format!(
+                "failed to resolve catalog: {}",
+                resolved_ref.catalog
+            ))?
+            .get_schema(&resolved_ref.schema)
+            .context(format!("failed to resolve schema:{}", resolved_ref.schema))
+    }
 }
 
 impl SessionContext {
@@ -70,7 +99,7 @@ impl SessionContext {
             state: Arc::new(RwLock::new(state)),
         }
     }
-    
+
     pub fn catalog_names(&self) -> Vec<String> {
         self.state.read().catalogs.catalog_names()
     }
@@ -84,6 +113,19 @@ impl SessionContext {
     pub fn session_id(&self) -> String {
         self.session_id.clone()
     }
+
+    pub fn register_table<'a>(
+        &'a self,
+        table_ref: impl Into<TableReference<'a>>,
+        table: Arc<dyn Table>,
+    ) -> Result<Option<Arc<dyn Table>>> {
+        let table_ref = table_ref.into();
+        let table_name = table_ref.table_name().to_owned();
+        self.state
+            .read()
+            .schema_for_ref(table_ref)?
+            .register_table(table_name, table)
+    }
 }
 
 impl Default for SessionContext {
@@ -95,7 +137,7 @@ impl Default for SessionContext {
 // todo: test session module, and add memory table (include method to init data), then test basic table scan
 
 #[cfg(test)]
-mod test{
+mod test {
     use super::*;
     use anyhow::Result;
     #[test]
