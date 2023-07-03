@@ -5,7 +5,7 @@ use anyhow::{Result, anyhow};
 use dashmap::DashMap;
 
 #[async_trait]
-pub trait Schema {
+pub trait Schema: Send + Sync {
     fn table_names(&self) -> Vec<String>;
     async fn get_table(&self, name: &str) -> Option<Arc<dyn Table>>;
     fn table_exist(&self, name: &str) -> bool;
@@ -53,7 +53,7 @@ impl Schema for MemorySchema {
     }
 }
 
-pub trait Catalog {
+pub trait Catalog: Send + Sync {
     fn schema_names(&self) -> Vec<String>;
     fn get_schema(&self, name: &str) -> Option<Arc<dyn Schema>>;
     fn register_schema(&self, name: &str, schema: Arc<dyn Schema>) -> Result<Option<Arc<dyn Schema>>>;
@@ -93,7 +93,7 @@ impl Catalog for MemoryCatalog {
     }
 }
 
-pub trait CatalogList {
+pub trait CatalogList: Send + Sync {
     fn register_catalog(&self, name: String, catalog: Arc<dyn Catalog>) -> Option<Arc<dyn Catalog>>;
     fn catalog_names(&self) -> Vec<String>;
     fn catalog(&self, name: &str) -> Option<Arc<dyn Catalog>>;

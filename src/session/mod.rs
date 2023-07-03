@@ -5,8 +5,9 @@ use crate::catalog::MemoryCatalogList;
 use crate::catalog::MemorySchema;
 use crate::common::config::ConfigOptions;
 use chrono::{DateTime, Utc};
+use sled::Config;
 use std::sync::Arc;
-use std::sync::RwLock;
+use parking_lot::RwLock;
 use uuid::Uuid;
 
 #[derive(Clone)]
@@ -32,6 +33,17 @@ impl SessionState {
             config,
         }
     }
+    pub fn catalogs(&self) -> Arc<dyn CatalogList> {
+        self.catalogs.clone()
+    }
+    pub fn config(&self) -> &ConfigOptions {
+        &self.config
+    }
+    pub fn session_id(&self) -> &str {
+        &self.session_id
+    }
+
+    
 }
 
 impl SessionContext {
@@ -58,10 +70,42 @@ impl SessionContext {
             state: Arc::new(RwLock::new(state)),
         }
     }
+    
+    pub fn catalog_names(&self) -> Vec<String> {
+        self.state.read().catalogs.catalog_names()
+    }
+    pub fn catalog(&self, name: &str) -> Option<Arc<dyn Catalog>> {
+        self.state.read().catalogs.catalog(name)
+    }
+    pub fn session_start_time(&self) -> DateTime<Utc> {
+        self.session_start_time
+    }
+
+    pub fn session_id(&self) -> String {
+        self.session_id.clone()
+    }
 }
 
 impl Default for SessionContext {
     fn default() -> Self {
         Self::new_inmemory_ctx()
+    }
+}
+
+// todo: test session module, and add memory table (include method to init data), then test basic table scan
+
+#[cfg(test)]
+mod test{
+    use super::*;
+    use anyhow::Result;
+    #[test]
+    fn test_session_init() -> Result<()> {
+        let session = SessionContext::default();
+        let session_id = session.state.read().session_id();
+        //let catalogs: std::result::Result<std::sync::RwLockReadGuard<'_, SessionState>, std::sync::PoisonError<std::sync::RwLockReadGuard<'_, SessionState>>> = session.state.read();
+        //println!("the catalog {:?}", catalogs);
+        //let x = session.state.read().unwrap().catalogs.catalog("yoursql").unwrap();
+        //println!("the schema {:?}?",x.schema_names())
+        Ok(())
     }
 }
