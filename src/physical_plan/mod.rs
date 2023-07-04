@@ -8,6 +8,8 @@ use anyhow::Result;
 use std::pin::Pin;
 use std::fmt::Debug;
 use std::any::Any;
+
+/// note the item is Result of RecordBatch
 pub trait RecordBatchStream: Stream<Item=Result<RecordBatch>>{
     fn header(&self) -> Fields;
 }

@@ -126,6 +126,10 @@ impl SessionContext {
             .schema_for_ref(table_ref)?
             .register_table(table_name, table)
     }
+
+    pub fn state(&self) -> SessionState {
+        self.state.read().clone()
+    }
 }
 
 impl Default for SessionContext {
@@ -139,11 +143,15 @@ impl Default for SessionContext {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::common::record_batch::RecordBatch;
     use crate::common::types::DataType;
+    use crate::common::types::DataValue;
     use crate::common::types::Field;
     use crate::common::types::TableDef;
     use crate::storage::empty::EmptyTable;
+    use crate::storage::memory::MemTable;
     use anyhow::Result;
+    use futures::StreamExt;
     use std::collections::HashMap;
     #[test]
     fn test_session_init() -> Result<()> {
@@ -161,6 +169,52 @@ mod test {
         session.register_table(table_referene.clone(), Arc::new(empty_table))?;
         let schema = session.state.read().schema_for_ref(table_referene)?;
         assert_eq!(schema.table_exist("testa"), true);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_memtable_scan() -> Result<()> {
+        let session = SessionContext::default();
+        let memtable_def = TableDef::new(
+            vec![
+                Field::new("a", DataType::Int64, false),
+                Field::new("b", DataType::Boolean, false),
+            ],
+            HashMap::new(),
+        );
+        let row_batch1 = vec![
+            vec![DataValue::Int64(1), DataValue::Boolean(false)],
+            vec![DataValue::Int64(2), DataValue::Boolean(false)],
+        ];
+        let row_batch2 = vec![
+            vec![DataValue::Int64(3), DataValue::Boolean(true)],
+            vec![DataValue::Int64(4), DataValue::Boolean(true)],
+        ];
+        let batch1 = RecordBatch {
+            header: memtable_def.fields.clone(),
+            rows: row_batch1.clone(),
+        };
+        let batch2 = RecordBatch {
+            header: memtable_def.fields.clone(),
+            rows: row_batch2.clone(),
+        };
+        let memtable = MemTable::try_new(Arc::new(memtable_def), vec![batch1, batch2])?;
+        let table_referene = TableReference::Bare {
+            table: "testa".into(),
+        };
+        let table_ref = Arc::new(memtable);
+        session.register_table(table_referene.clone(), table_ref.clone())?;
+        let schema = session.state.read().schema_for_ref(table_referene)?;
+        assert_eq!(schema.table_exist("testa"), true);
+        let exec = table_ref.scan(&session.state(), None, &[]).await?;
+        let mut it = exec.execute()?;
+        // note 1st unwrap is for option, 2nd the item of the stream is Result of RecordBatch, so use ?
+        let fetch_batch1: RecordBatch = it.next().await.unwrap()?;
+        assert_eq!(fetch_batch1.rows, row_batch1);
+        let fetch_batch2: RecordBatch = it.next().await.unwrap()?;
+        assert_eq!(fetch_batch2.rows, row_batch2);
+        let done  = it.next().await;
+        assert_eq!(true, done.is_none());
         Ok(())
     }
 }

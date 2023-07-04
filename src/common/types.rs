@@ -35,7 +35,7 @@ pub enum DataValue {
     Time64Nanosecond(i64),
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
 pub enum DataType {
     Null,
     Boolean,
@@ -59,7 +59,7 @@ pub enum DataType {
     Time64Nanosecond,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
 pub struct Field {
     name: String,
     data_type: DataType,
@@ -114,6 +114,17 @@ impl Fields {
             .collect::<Result<Vec<_>, _>>()?;
         Ok(Fields(new_fields.into()))
     }
+
+    pub fn equal(&self, other: &Fields) -> bool {
+        if Arc::ptr_eq(&self.0, &other.0) {
+            return true;
+        }
+        self.len() == other.len()
+            && self
+                .iter()
+                .zip(other.iter())
+                .all(|(a, b)| Arc::ptr_eq(a, b) || *(*a) == *(*b))
+    }
 }
 
 impl From<Vec<FieldRef>> for Fields {
@@ -167,7 +178,10 @@ impl TableDef {
         }
     }
     pub fn new(fields: impl Into<Fields>, metadata: HashMap<String, String>) -> Self {
-        Self { fields: fields.into(), metadata: metadata}
+        Self {
+            fields: fields.into(),
+            metadata: metadata,
+        }
     }
     pub fn fields(&self) -> &Fields {
         &self.fields
@@ -177,5 +191,33 @@ impl TableDef {
             fields: self.fields.project(indices)?,
             metadata: self.metadata.clone(),
         })
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    #[test]
+    fn test_field_equal() {
+        let f1 = Field::new("name_a", DataType::Binary, false);
+        let f2 = Field::new("name_a", DataType::Binary, false);
+        let f3 = Field::new("name_b", DataType::Binary, false);
+        let f4 = Field::new("name_b", DataType::Binary, true);
+        assert_eq!(f1, f2);
+        assert_ne!(f1, f3);
+        assert_ne!(f3, f4);
+    }
+
+    #[test]
+    fn test_fields_equal() {
+        let f1 = Field::new("name_a", DataType::Int16, false);
+        let f2 = Field::new("name_b", DataType::Binary, false);
+        let fields_1: Fields = vec![f1, f2].into();
+        let f3 = Field::new("name_a", DataType::Int16, false);
+        let f4 = Field::new("name_b", DataType::Binary, false);
+        let fields_2: Fields= vec![f3, f4].into();
+        let fields_3 = Fields(fields_2.0.clone());
+        assert_eq!(fields_1, fields_2);
+        assert_eq!(fields_1, fields_3);
     }
 }
