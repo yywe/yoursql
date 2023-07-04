@@ -166,6 +166,9 @@ impl TableDef {
             metadata: HashMap::new(),
         }
     }
+    pub fn new(fields: impl Into<Fields>, metadata: HashMap<String, String>) -> Self {
+        Self { fields: fields.into(), metadata: metadata}
+    }
     pub fn fields(&self) -> &Fields {
         &self.fields
     }

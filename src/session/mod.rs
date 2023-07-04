@@ -139,15 +139,28 @@ impl Default for SessionContext {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::common::types::DataType;
+    use crate::common::types::Field;
+    use crate::common::types::TableDef;
+    use crate::storage::empty::EmptyTable;
     use anyhow::Result;
+    use std::collections::HashMap;
     #[test]
     fn test_session_init() -> Result<()> {
         let session = SessionContext::default();
-        let session_id = session.state.read().session_id();
-        //let catalogs: std::result::Result<std::sync::RwLockReadGuard<'_, SessionState>, std::sync::PoisonError<std::sync::RwLockReadGuard<'_, SessionState>>> = session.state.read();
-        //println!("the catalog {:?}", catalogs);
-        //let x = session.state.read().unwrap().catalogs.catalog("yoursql").unwrap();
-        //println!("the schema {:?}?",x.schema_names())
+        let empty_table = EmptyTable::new(Arc::new(TableDef::new(
+            vec![
+                Field::new("a", DataType::Int64, false),
+                Field::new("b", DataType::Boolean, false),
+            ],
+            HashMap::new(),
+        )));
+        let table_referene = TableReference::Bare {
+            table: "testa".into(),
+        };
+        session.register_table(table_referene.clone(), Arc::new(empty_table))?;
+        let schema = session.state.read().schema_for_ref(table_referene)?;
+        assert_eq!(schema.table_exist("testa"), true);
         Ok(())
     }
 }

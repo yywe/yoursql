@@ -13,6 +13,7 @@ impl<'a> std::fmt::Display for ResolvedTableReference<'a> {
     }
 }
 
+#[derive(Debug, Clone)]
 pub enum TableReference<'a> {
     Bare {
         table: Cow<'a, str>,

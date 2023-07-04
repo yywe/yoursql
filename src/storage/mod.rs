@@ -6,8 +6,8 @@ use anyhow::Result;
 use std::sync::Arc;
 
 
-mod empty;
-mod memory;
+pub mod empty;
+pub mod memory;
 
 #[async_trait]
 pub trait Table: Sync + Send{
