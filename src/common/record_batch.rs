@@ -7,7 +7,7 @@ pub struct RecordBatch {
     pub header: Fields,
     pub rows: Vec<Vec<DataValue>>,
 }
-// todo: enrich record batch functions
+
 impl RecordBatch {
     pub fn project(&self, indices: &[usize]) -> Result<RecordBatch> {
         let projected_header = self.header.project(indices)?;

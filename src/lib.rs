@@ -1,6 +1,6 @@
-mod catalog;
-mod storage;
-mod common;
-mod expr;
-mod session;
-mod physical_plan;
+pub mod catalog;
+pub mod storage;
+pub mod common;
+pub mod expr;
+pub mod session;
+pub mod physical_plan;

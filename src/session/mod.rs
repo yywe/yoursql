@@ -17,9 +17,9 @@ use uuid::Uuid;
 
 #[derive(Clone)]
 pub struct SessionContext {
-    session_id: String,
-    session_start_time: DateTime<Utc>,
-    state: Arc<RwLock<SessionState>>,
+    pub session_id: String,
+    pub session_start_time: DateTime<Utc>,
+    pub state: Arc<RwLock<SessionState>>,
 }
 
 #[derive(Clone)]
@@ -137,8 +137,6 @@ impl Default for SessionContext {
         Self::new_inmemory_ctx()
     }
 }
-
-// todo: test session module, and add memory table (include method to init data), then test basic table scan
 
 #[cfg(test)]
 mod test {

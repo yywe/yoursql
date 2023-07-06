@@ -8,6 +8,7 @@ use anyhow::Result;
 use std::pin::Pin;
 use std::fmt::Debug;
 use std::any::Any;
+use futures::StreamExt;
 
 /// note the item is Result of RecordBatch
 pub trait RecordBatchStream: Stream<Item=Result<RecordBatch>>{
@@ -20,4 +21,13 @@ pub trait ExecutionPlan: Debug + Send + Sync {
     fn as_any(&self) -> &dyn Any;
     fn header(&self) -> Fields;
     fn execute(&self) -> Result<SendableRecordBatchStream>;
+}
+
+pub async fn print_batch_stream(mut rs: Pin<Box<dyn RecordBatchStream + Send>>) -> Result<()> {
+    let header = rs.header();
+    println!("{}", header.iter().map(|f|f.name().as_str()).collect::<Vec<_>>().join("|"));
+    while let Some(batch) = rs.next().await {
+        println!("{:?}",batch);
+    }
+    Ok(())
 }
