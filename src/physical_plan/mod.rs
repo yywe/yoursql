@@ -26,8 +26,14 @@ pub trait ExecutionPlan: Debug + Send + Sync {
 pub async fn print_batch_stream(mut rs: Pin<Box<dyn RecordBatchStream + Send>>) -> Result<()> {
     let header = rs.header();
     println!("{}", header.iter().map(|f|f.name().as_str()).collect::<Vec<_>>().join("|"));
-    while let Some(batch) = rs.next().await {
-        println!("{:?}",batch);
+    while let Some(result) = rs.next().await {
+        if let Ok(batch) = result{
+            for row in batch.rows {
+                println!("{}", row.iter().map(|v|format!("{}",v)).collect::<Vec<_>>().join("|"))
+            }
+        }else{
+            println!("error occured while fetching next result")
+        }
     }
     Ok(())
 }

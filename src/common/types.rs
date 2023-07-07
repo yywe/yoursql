@@ -1,9 +1,12 @@
 use anyhow::Context;
 use anyhow::Result;
+use chrono::prelude::DateTime;
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::ops::Deref;
 use std::sync::Arc;
+use std::time::{Duration, UNIX_EPOCH};
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum DataValue {
@@ -33,6 +36,70 @@ pub enum DataValue {
     Time64Microsecond(i64),
     /// Time stored as a signed 64bit int as nanoseconds since midnight
     Time64Nanosecond(i64),
+}
+
+impl std::fmt::Display for DataValue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(
+            match self {
+                DataValue::Null => "NULL".to_string(),
+                DataValue::Boolean(b) => {
+                    if *b {
+                        "TRUE".to_string()
+                    } else {
+                        "FALSE".to_string()
+                    }
+                }
+                DataValue::Float32(n) => n.to_string(),
+                DataValue::Float64(n) => n.to_string(),
+                DataValue::Int8(n) => n.to_string(),
+                DataValue::Int16(n) => n.to_string(),
+                DataValue::Int32(n) => n.to_string(),
+                DataValue::Int64(n) => n.to_string(),
+                DataValue::UInt8(n) => n.to_string(),
+                DataValue::UInt16(n) => n.to_string(),
+                DataValue::UInt32(n) => n.to_string(),
+                DataValue::UInt64(n) => n.to_string(),
+                DataValue::Utf8(s) => s.to_owned(),
+                DataValue::Binary(b) => b
+                    .iter()
+                    .map(|v| format!("{v}"))
+                    .collect::<Vec<_>>()
+                    .join(","),
+                DataValue::Date32(d) => {
+                    let t = UNIX_EPOCH + Duration::from_secs(*d as u64);
+                    let datetime = DateTime::<Utc>::from(t);
+                    datetime.format("%Y-%m-%d").to_string()
+                }
+                DataValue::Date64(d) => {
+                    let t = UNIX_EPOCH + Duration::from_secs(*d as u64);
+                    let datetime = DateTime::<Utc>::from(t);
+                    datetime.format("%Y-%m-%d").to_string()
+                }
+                DataValue::Time32Second(d) => {
+                    let t = UNIX_EPOCH + Duration::from_secs(*d as u64);
+                    let datetime = DateTime::<Utc>::from(t);
+                    datetime.format("%Y-%m-%d %H:%M:%S.%f").to_string()
+                }
+                DataValue::Time32Millisecond(d) => {
+                    let t = UNIX_EPOCH + Duration::from_millis(*d as u64);
+                    let datetime = DateTime::<Utc>::from(t);
+                    datetime.format("%Y-%m-%d %H:%M:%S.%f").to_string()
+                }
+                DataValue::Time64Microsecond(d) => {
+                    let t = UNIX_EPOCH + Duration::from_micros(*d as u64);
+                    let datetime = DateTime::<Utc>::from(t);
+                    datetime.format("%Y-%m-%d %H:%M:%S.%f").to_string()
+                }
+                DataValue::Time64Nanosecond(d) => {
+                    let t = UNIX_EPOCH + Duration::from_nanos(*d as u64);
+                    let datetime = DateTime::<Utc>::from(t);
+                    datetime.format("%Y-%m-%d %H:%M:%S.%f").to_string()
+                }
+            }
+            .as_ref(),
+        )
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
@@ -215,7 +282,7 @@ mod test {
         let fields_1: Fields = vec![f1, f2].into();
         let f3 = Field::new("name_a", DataType::Int16, false);
         let f4 = Field::new("name_b", DataType::Binary, false);
-        let fields_2: Fields= vec![f3, f4].into();
+        let fields_2: Fields = vec![f3, f4].into();
         let fields_3 = Fields(fields_2.0.clone());
         assert_eq!(fields_1, fields_2);
         assert_eq!(fields_1, fields_3);
