@@ -4,3 +4,4 @@ pub mod common;
 pub mod expr;
 pub mod session;
 pub mod physical_plan;
+pub mod parser;
