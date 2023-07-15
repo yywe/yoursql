@@ -1,12 +1,12 @@
-use crate::common::types::Field;
-use crate::common::types::SchemaRef;
+use crate::common::schema::Field;
+use crate::common::schema::SchemaRef;
 use crate::common::types::{DataType, DataValue};
 use anyhow::Result;
 use crate::physical_plan::ExecutionPlan;
 use std::any::Any;
-use crate::common::{record_batch::RecordBatch,types::Fields};
+use crate::common::{record_batch::RecordBatch,schema::Fields};
 use crate::physical_plan::SendableRecordBatchStream;
-use crate::common::types::Schema;
+use crate::common::schema::Schema;
 use super::memory::MemoryStream;
 use std::collections::HashMap;
 use std::sync::Arc;

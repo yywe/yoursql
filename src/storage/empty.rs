@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use crate::storage::Table;
-use crate::common::types::SchemaRef;
+use crate::common::schema::SchemaRef;
 use crate::session::SessionState;
 use std::any::Any;
 use anyhow::Result;

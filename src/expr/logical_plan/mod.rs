@@ -1,6 +1,6 @@
 use crate::expr::expr::Expr;
 use std::sync::Arc;
-use crate::common::types::Fields;
+use crate::common::schema::Fields;
 
 pub enum LogicalPlan {
     Projection(Projection)

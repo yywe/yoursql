@@ -2,7 +2,7 @@
 pub mod empty;
 pub mod memory;
 
-use crate::common::{record_batch::RecordBatch, types::Fields};
+use crate::common::{record_batch::RecordBatch, schema::Fields};
 use futures::Stream;
 use anyhow::Result;
 use std::pin::Pin;

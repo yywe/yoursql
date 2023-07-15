@@ -1,4 +1,4 @@
-use crate::common::{record_batch::RecordBatch, types::SchemaRef};
+use crate::common::{record_batch::RecordBatch, schema::SchemaRef};
 use crate::expr::expr::Expr;
 use crate::physical_plan::ExecutionPlan;
 use crate::physical_plan::memory::MemoryExec;

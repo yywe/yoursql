@@ -136,8 +136,8 @@ mod test {
     use crate::common::record_batch::RecordBatch;
     use crate::common::types::DataType;
     use crate::common::types::DataValue;
-    use crate::common::types::Field;
-    use crate::common::types::Schema;
+    use crate::common::schema::Field;
+    use crate::common::schema::Schema;
     use crate::common::table_reference::OwnedTableReference;
     use crate::storage::empty::EmptyTable;
     use crate::storage::memory::MemTable;

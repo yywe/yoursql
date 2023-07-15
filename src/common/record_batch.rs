@@ -1,6 +1,6 @@
 use crate::common::types::DataValue;
-use crate::common::types::Fields;
-use super::types::SchemaRef;
+use crate::common::schema::Fields;
+use super::schema::SchemaRef;
 use anyhow::Context;
 use anyhow::Result;
 use std::sync::Arc;
