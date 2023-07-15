@@ -1,4 +1,4 @@
-use crate::common::{record_batch::RecordBatch, types::TableRef};
+use crate::common::{record_batch::RecordBatch, types::SchemaRef};
 use crate::expr::expr::Expr;
 use crate::physical_plan::ExecutionPlan;
 use crate::physical_plan::memory::MemoryExec;
@@ -11,24 +11,24 @@ use std::sync::Arc;
 
 #[derive(Debug)]
 pub struct MemTable {
-    def: TableRef,
+    schema: SchemaRef,
     batches: Vec<RecordBatch>,
 }
 
 impl MemTable {
-    pub fn try_new(def: TableRef, batches: Vec<RecordBatch>) -> Result<Self> {
+    pub fn try_new(schema: SchemaRef, batches: Vec<RecordBatch>) -> Result<Self> {
         // check if the header matches the table fields
         for batch in batches.iter() {
-            if batch.header != def.fields {
+            if batch.schema != schema {
                 return Err(anyhow!(
-                    "batch header {:?} does not match table definition {:?}",
-                    batch.header,
-                    def.fields
+                    "batch schema {:?} does not match table definition {:?}",
+                    batch.schema,
+                    schema
                 ));
             }
         }
         Ok(Self {
-            def: def,
+            schema: schema,
             batches: batches,
         })
     }
@@ -36,8 +36,8 @@ impl MemTable {
 
 #[async_trait]
 impl Table for MemTable {
-    fn get_table(&self) -> TableRef {
-        self.def.clone()
+    fn get_table(&self) -> SchemaRef {
+        self.schema.clone()
     }
     fn as_any(&self) -> &dyn Any {
         self
@@ -48,6 +48,6 @@ impl Table for MemTable {
         projection: Option<&Vec<usize>>,
         _filters: &[Expr],
     ) -> Result<Arc<dyn ExecutionPlan>> {
-        Ok(Arc::new(MemoryExec::try_new(self.def.clone(), self.batches.clone(), projection.cloned())?))
+        Ok(Arc::new(MemoryExec::try_new(self.schema.clone(), self.batches.clone(), projection.cloned())?))
     }
 }

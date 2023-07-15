@@ -1,5 +1,5 @@
 use super::RecordBatchStream;
-use crate::common::types::TableRef;
+use crate::common::types::SchemaRef;
 use crate::common::{record_batch::RecordBatch, types::Fields};
 use crate::physical_plan::ExecutionPlan;
 use crate::physical_plan::SendableRecordBatchStream;
@@ -11,7 +11,7 @@ use std::task::{Context, Poll};
 
 #[derive(Debug)]
 pub struct MemoryExec {
-    table: TableRef,
+    table: SchemaRef,
     batches: Vec<RecordBatch>,
 
     // note here the header is projected, while the data/header stored in RecordBatch is not yet
@@ -22,7 +22,7 @@ pub struct MemoryExec {
 
 impl MemoryExec {
     pub fn try_new(
-        table: TableRef,
+        table: SchemaRef,
         data: Vec<RecordBatch>,
         projection: Option<Vec<usize>>,
     ) -> Result<Self> {

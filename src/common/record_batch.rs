@@ -1,16 +1,20 @@
 use crate::common::types::DataValue;
 use crate::common::types::Fields;
+use super::types::SchemaRef;
 use anyhow::Context;
 use anyhow::Result;
+use std::sync::Arc;
+
+
 #[derive(Clone, Debug)]
 pub struct RecordBatch {
-    pub header: Fields,
+    pub schema: SchemaRef,
     pub rows: Vec<Vec<DataValue>>,
 }
 
 impl RecordBatch {
     pub fn project(&self, indices: &[usize]) -> Result<RecordBatch> {
-        let projected_header = self.header.project(indices)?;
+        let projected_schema = self.schema.project(indices)?;
         let projected_rows = self
             .rows
             .iter()
@@ -26,7 +30,7 @@ impl RecordBatch {
             })
             .collect::<Result<Vec<_>, _>>()?;
         Ok(RecordBatch {
-            header: projected_header,
+            schema: Arc::new(projected_schema),
             rows: projected_rows,
         })
     }

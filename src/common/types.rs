@@ -8,6 +8,8 @@ use std::ops::Deref;
 use std::sync::Arc;
 use std::time::{Duration, UNIX_EPOCH};
 
+use super::table_reference::OwnedTableReference;
+
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum DataValue {
     Null,
@@ -132,15 +134,17 @@ pub struct Field {
     data_type: DataType,
     nullable: bool,
     metadata: HashMap<String, String>,
+    qualifier: Option<OwnedTableReference>,
 }
 
 impl Field {
-    pub fn new(name: impl Into<String>, data_type: DataType, nullable: bool) -> Self {
+    pub fn new(name: impl Into<String>, data_type: DataType, nullable: bool, qualifier: Option<OwnedTableReference>) -> Self {
         Field {
             name: name.into(),
             data_type,
             nullable,
             metadata: HashMap::default(),
+            qualifier: qualifier,
         }
     }
     pub fn name(&self) -> &String {
@@ -230,14 +234,14 @@ impl Deref for Fields {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-pub struct TableDef {
+pub struct Schema {
     pub fields: Fields,
     pub metadata: HashMap<String, String>,
 }
 
-pub type TableRef = Arc<TableDef>;
+pub type SchemaRef = Arc<Schema>;
 
-impl TableDef {
+impl Schema {
     pub fn empty() -> Self {
         Self {
             fields: Default::default(),
@@ -253,7 +257,7 @@ impl TableDef {
     pub fn fields(&self) -> &Fields {
         &self.fields
     }
-    pub fn project(&self, indices: &[usize]) -> Result<TableDef> {
+    pub fn project(&self, indices: &[usize]) -> Result<Schema> {
         Ok(Self {
             fields: self.fields.project(indices)?,
             metadata: self.metadata.clone(),
@@ -266,10 +270,14 @@ mod test {
     use super::*;
     #[test]
     fn test_field_equal() {
-        let f1 = Field::new("name_a", DataType::Binary, false);
-        let f2 = Field::new("name_a", DataType::Binary, false);
-        let f3 = Field::new("name_b", DataType::Binary, false);
-        let f4 = Field::new("name_b", DataType::Binary, true);
+        let qualifier = OwnedTableReference::Full {
+            database: "testdb".to_string().into(),
+            table: "testtable".to_string().into(),
+        };
+        let f1 = Field::new("name_a", DataType::Binary, false,Some(qualifier.clone()));
+        let f2 = Field::new("name_a", DataType::Binary, false,Some(qualifier.clone()));
+        let f3 = Field::new("name_b", DataType::Binary, false,Some(qualifier.clone()));
+        let f4 = Field::new("name_b", DataType::Binary, true,Some(qualifier.clone()));
         assert_eq!(f1, f2);
         assert_ne!(f1, f3);
         assert_ne!(f3, f4);
@@ -277,11 +285,15 @@ mod test {
 
     #[test]
     fn test_fields_equal() {
-        let f1 = Field::new("name_a", DataType::Int16, false);
-        let f2 = Field::new("name_b", DataType::Binary, false);
+        let qualifier = OwnedTableReference::Full {
+            database: "testdb".to_string().into(),
+            table: "testtable".to_string().into(),
+        };
+        let f1 = Field::new("name_a", DataType::Int16, false,Some(qualifier.clone()));
+        let f2 = Field::new("name_b", DataType::Binary, false,Some(qualifier.clone()));
         let fields_1: Fields = vec![f1, f2].into();
-        let f3 = Field::new("name_a", DataType::Int16, false);
-        let f4 = Field::new("name_b", DataType::Binary, false);
+        let f3 = Field::new("name_a", DataType::Int16, false,Some(qualifier.clone()));
+        let f4 = Field::new("name_b", DataType::Binary, false,Some(qualifier));
         let fields_2: Fields = vec![f3, f4].into();
         let fields_3 = Fields(fields_2.0.clone());
         assert_eq!(fields_1, fields_2);

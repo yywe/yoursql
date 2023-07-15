@@ -3,10 +3,11 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use yoursql::common::record_batch::RecordBatch;
 use yoursql::common::table_reference::TableReference;
+use yoursql::common::table_reference::OwnedTableReference;
 use yoursql::common::types::DataType;
 use yoursql::common::types::DataValue;
 use yoursql::common::types::Field;
-use yoursql::common::types::TableDef;
+use yoursql::common::types::Schema;
 use yoursql::physical_plan::print_batch_stream;
 use yoursql::physical_plan::RecordBatchStream;
 use yoursql::session::SessionContext;
@@ -19,14 +20,20 @@ async fn main() -> Result<()> {
     // init a session
     let session = SessionContext::default();
     // prepare a memory table
-    let memtable_def = TableDef::new(
+    let qualifier = OwnedTableReference::Full {
+        database: "testdb".to_string().into(),
+        table: "testtable".to_string().into(),
+    };
+    let memtable_def = Schema::new(
         vec![
-            Field::new("a", DataType::Int64, false),
-            Field::new("b", DataType::Boolean, false),
-            Field::new("c", DataType::Utf8, false),
+            Field::new("a", DataType::Int64, false,  Some(qualifier.clone())),
+            Field::new("b", DataType::Boolean, false,  Some(qualifier.clone())),
+            Field::new("c", DataType::Utf8, false,  Some(qualifier.clone())),
+           
         ],
         HashMap::new(),
     );
+    let memtable_ref = Arc::new(memtable_def);
     let row_batch1 = vec![
         vec![
             DataValue::Int64(1),
@@ -52,14 +59,14 @@ async fn main() -> Result<()> {
         ],
     ];
     let batch1 = RecordBatch {
-        header: memtable_def.fields.clone(),
+        schema: memtable_ref.clone(),
         rows: row_batch1.clone(),
     };
     let batch2 = RecordBatch {
-        header: memtable_def.fields.clone(),
+        schema: memtable_ref.clone(),
         rows: row_batch2.clone(),
     };
-    let memtable = MemTable::try_new(Arc::new(memtable_def), vec![batch1, batch2])?;
+    let memtable = MemTable::try_new(memtable_ref, vec![batch1, batch2])?;
 
     // register the table to catalog
     let table_referene = TableReference::Bare {

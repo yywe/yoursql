@@ -127,9 +127,7 @@ config_namespace! {
     pub struct CatalogOptions {
         pub create_default_catalog_and_schema: bool, default = true
 
-        pub default_catalog: String, default = "yoursql".to_string()
-
-        pub default_schema: String, default = "public".to_string()
+        pub default_database: String, default = "master".to_string()
 
     }
 }

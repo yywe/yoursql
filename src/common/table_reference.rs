@@ -1,30 +1,25 @@
 use super::utils::parse_identifiers_normalized;
 use std::borrow::Cow;
+use serde::{Deserialize, Serialize};
 
 pub struct ResolvedTableReference<'a> {
-    pub catalog: Cow<'a, str>,
-    pub schema: Cow<'a, str>,
+    pub database: Cow<'a, str>,
     pub table: Cow<'a, str>,
 }
 
 impl<'a> std::fmt::Display for ResolvedTableReference<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}.{}.{}", self.catalog, self.schema, self.table)
+        write!(f, "{}.{}", self.database, self.table)
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Serialize, Deserialize, Eq, PartialEq, Debug, Clone)]
 pub enum TableReference<'a> {
     Bare {
         table: Cow<'a, str>,
     },
-    Partial {
-        schema: Cow<'a, str>,
-        table: Cow<'a, str>,
-    },
     Full {
-        catalog: Cow<'a, str>,
-        schema: Cow<'a, str>,
+        database: Cow<'a, str>,
         table: Cow<'a, str>,
     },
 }
@@ -41,23 +36,12 @@ impl<'a> TableReference<'a> {
             table: table.into(),
         }
     }
-    pub fn partial(
-        schema: impl Into<Cow<'a, str>>,
-        table: impl Into<Cow<'a, str>>,
-    ) -> TableReference<'a> {
-        TableReference::Partial {
-            schema: schema.into(),
-            table: table.into(),
-        }
-    }
     pub fn full(
-        catalog: impl Into<Cow<'a, str>>,
-        schema: impl Into<Cow<'a, str>>,
+        database: impl Into<Cow<'a, str>>,
         table: impl Into<Cow<'a, str>>,
     ) -> TableReference<'a> {
         TableReference::Full {
-            catalog: catalog.into(),
-            schema: schema.into(),
+            database: database.into(),
             table: table.into(),
         }
     }
@@ -65,16 +49,10 @@ impl<'a> TableReference<'a> {
     pub fn to_owned_reference(&self) -> OwnedTableReference {
         match self {
             Self::Full {
-                catalog,
-                schema,
+                database,
                 table,
             } => OwnedTableReference::Full {
-                catalog: catalog.to_string().into(),
-                schema: schema.to_string().into(),
-                table: table.to_string().into(),
-            },
-            Self::Partial { schema, table } => OwnedTableReference::Partial {
-                schema: schema.to_string().into(),
+                database: database.to_string().into(),
                 table: table.to_string().into(),
             },
             Self::Bare { table } => OwnedTableReference::Bare {
@@ -85,7 +63,7 @@ impl<'a> TableReference<'a> {
 
     pub fn table_name(&self) -> &str {
         match self {
-            Self::Full { table, .. } | Self::Partial { table, .. } | Self::Bare { table } => table,
+            Self::Full { table, .. } | Self::Bare { table } => table,
         }
     }
     pub fn parse_str(s: &'a str) -> Self {
@@ -94,13 +72,8 @@ impl<'a> TableReference<'a> {
             1 => Self::Bare {
                 table: parts.remove(0).into(),
             },
-            2 => Self::Partial {
-                schema: parts.remove(0).into(),
-                table: parts.remove(0).into(),
-            },
-            3 => Self::Full {
-                catalog: parts.remove(0).into(),
-                schema: parts.remove(0).into(),
+            2 => Self::Full {
+                database: parts.remove(0).into(),
                 table: parts.remove(0).into(),
             },
             _ => Self::Bare { table: s.into() },
@@ -109,27 +82,18 @@ impl<'a> TableReference<'a> {
 
     pub fn resolve(
         self,
-        default_catalog: &'a str,
-        default_schema: &'a str,
+        default_database: &'a str,
     ) -> ResolvedTableReference<'a> {
         match self {
             Self::Full {
-                catalog,
-                schema,
+                database,
                 table,
             } => ResolvedTableReference {
-                catalog,
-                schema,
-                table,
-            },
-            Self::Partial { schema, table } => ResolvedTableReference {
-                catalog: default_catalog.into(),
-                schema,
+                database,
                 table,
             },
             Self::Bare { table } => ResolvedTableReference {
-                catalog: default_catalog.into(),
-                schema: default_schema.into(),
+                database: default_database.into(),
                 table,
             },
         }

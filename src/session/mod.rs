@@ -1,15 +1,15 @@
-use crate::catalog::Catalog;
-use crate::catalog::CatalogList;
-use crate::catalog::MemoryCatalog;
-use crate::catalog::MemoryCatalogList;
-use crate::catalog::MemorySchema;
-use crate::catalog::Schema;
+use crate::catalog::MemoryDB;
+use crate::catalog::DB;
+use crate::catalog::MemoryDBList;
+use crate::catalog::DBList;
 use crate::common::config::ConfigOptions;
 use crate::common::table_reference::ResolvedTableReference;
 use crate::common::table_reference::TableReference;
 use crate::storage::Table;
+use crate::expr::logical_plan::LogicalPlan;
 use anyhow::Context;
 use anyhow::Result;
+use anyhow::anyhow;
 use chrono::{DateTime, Utc};
 use parking_lot::RwLock;
 use std::sync::Arc;
@@ -25,21 +25,21 @@ pub struct SessionContext {
 #[derive(Clone)]
 pub struct SessionState {
     session_id: String,
-    catalogs: Arc<dyn CatalogList>,
+    databases: Arc<dyn DBList>,
     config: ConfigOptions,
 }
 
 impl SessionState {
-    pub fn new(config: ConfigOptions, catalogs: Arc<dyn CatalogList>) -> Self {
+    pub fn new(config: ConfigOptions, databases: Arc<dyn DBList>) -> Self {
         let session_id = Uuid::new_v4().to_string();
         Self {
             session_id,
-            catalogs,
+            databases,
             config,
         }
     }
-    pub fn catalogs(&self) -> Arc<dyn CatalogList> {
-        self.catalogs.clone()
+    pub fn catalogs(&self) -> Arc<dyn DBList> {
+        self.databases.clone()
     }
     pub fn config(&self) -> &ConfigOptions {
         &self.config
@@ -52,47 +52,39 @@ impl SessionState {
         &'a self,
         table_ref: impl Into<TableReference<'a>>,
     ) -> ResolvedTableReference<'a> {
-        let catalog = &self.catalogs;
         table_ref.into().resolve(
-            &self.config.catalog.default_catalog,
-            &self.config.catalog.default_schema,
+            &self.config.catalog.default_database
         )
     }
 
-    pub fn schema_for_ref<'a>(
+    pub fn database_for_ref<'a>(
         &'a self,
         table_ref: impl Into<TableReference<'a>>,
-    ) -> Result<Arc<dyn Schema>> {
+    ) -> Result<Arc<dyn DB>> {
         let resolved_ref = self.resolve_table_ref(table_ref);
-        self.catalogs
-            .catalog(&resolved_ref.catalog)
-            .context(format!(
-                "failed to resolve catalog: {}",
-                resolved_ref.catalog
-            ))?
-            .get_schema(&resolved_ref.schema)
-            .context(format!("failed to resolve schema:{}", resolved_ref.schema))
+        self.databases
+            .database(&resolved_ref.database)
+            .context(format!("failed to resolve database:{}", resolved_ref.database))
     }
+
+    pub async fn make_logical_plan(&self, statement: sqlparser::ast::Statement) -> Result<LogicalPlan> {
+        Err(anyhow!("Not impl."))
+    }
+
 }
 
 impl SessionContext {
     pub fn new_inmemory_ctx() -> Self {
         let config = ConfigOptions::new();
-        let catalogs = MemoryCatalogList::new();
+        let databases = MemoryDBList::new();
         if config.catalog.create_default_catalog_and_schema {
-            let default_catalog = MemoryCatalog::new();
-            default_catalog
-                .register_schema(
-                    &config.catalog.default_schema,
-                    Arc::new(MemorySchema::new()),
-                )
-                .expect("failed to register schema");
-            catalogs.register_catalog(
-                config.catalog.default_catalog.clone(),
-                Arc::new(default_catalog),
+            let default_database = MemoryDB::new();
+            databases.register_database(
+                config.catalog.default_database.clone(),
+                Arc::new(default_database),
             );
         }
-        let state = SessionState::new(config, Arc::new(catalogs));
+        let state = SessionState::new(config, Arc::new(databases));
         Self {
             session_id: state.session_id.clone(),
             session_start_time: Utc::now(),
@@ -100,11 +92,11 @@ impl SessionContext {
         }
     }
 
-    pub fn catalog_names(&self) -> Vec<String> {
-        self.state.read().catalogs.catalog_names()
+    pub fn database_names(&self) -> Vec<String> {
+        self.state.read().databases.database_names()
     }
-    pub fn catalog(&self, name: &str) -> Option<Arc<dyn Catalog>> {
-        self.state.read().catalogs.catalog(name)
+    pub fn database(&self, name: &str) -> Option<Arc<dyn DB>> {
+        self.state.read().databases.database(name)
     }
     pub fn session_start_time(&self) -> DateTime<Utc> {
         self.session_start_time
@@ -123,7 +115,7 @@ impl SessionContext {
         let table_name = table_ref.table_name().to_owned();
         self.state
             .read()
-            .schema_for_ref(table_ref)?
+            .database_for_ref(table_ref)?
             .register_table(table_name, table)
     }
 
@@ -145,7 +137,8 @@ mod test {
     use crate::common::types::DataType;
     use crate::common::types::DataValue;
     use crate::common::types::Field;
-    use crate::common::types::TableDef;
+    use crate::common::types::Schema;
+    use crate::common::table_reference::OwnedTableReference;
     use crate::storage::empty::EmptyTable;
     use crate::storage::memory::MemTable;
     use anyhow::Result;
@@ -154,10 +147,14 @@ mod test {
     #[test]
     fn test_session_init() -> Result<()> {
         let session = SessionContext::default();
-        let empty_table = EmptyTable::new(Arc::new(TableDef::new(
+        let qualifier = OwnedTableReference::Full {
+            database: "testdb".to_string().into(),
+            table: "testtable".to_string().into(),
+        };
+        let empty_table = EmptyTable::new(Arc::new(Schema::new(
             vec![
-                Field::new("a", DataType::Int64, false),
-                Field::new("b", DataType::Boolean, false),
+                Field::new("a", DataType::Int64, false,Some(qualifier.clone())),
+                Field::new("b", DataType::Boolean, false,Some(qualifier)),
             ],
             HashMap::new(),
         )));
@@ -165,21 +162,26 @@ mod test {
             table: "testa".into(),
         };
         session.register_table(table_referene.clone(), Arc::new(empty_table))?;
-        let schema = session.state.read().schema_for_ref(table_referene)?;
-        assert_eq!(schema.table_exist("testa"), true);
+        let database = session.state.read().database_for_ref(table_referene)?;
+        assert_eq!(database.table_exist("testa"), true);
         Ok(())
     }
 
     #[tokio::test]
     async fn test_memtable_scan() -> Result<()> {
         let session = SessionContext::default();
-        let memtable_def = TableDef::new(
+        let qualifier = OwnedTableReference::Full {
+            database: "testdb".to_string().into(),
+            table: "testtable".to_string().into(),
+        };
+        let memtable_def = Schema::new(
             vec![
-                Field::new("a", DataType::Int64, false),
-                Field::new("b", DataType::Boolean, false),
+                Field::new("a", DataType::Int64, false,Some(qualifier.clone())),
+                Field::new("b", DataType::Boolean, false,Some(qualifier)),
             ],
             HashMap::new(),
         );
+        let memtable_ref = Arc::new(memtable_def);
         let row_batch1 = vec![
             vec![DataValue::Int64(1), DataValue::Boolean(false)],
             vec![DataValue::Int64(2), DataValue::Boolean(false)],
@@ -189,21 +191,21 @@ mod test {
             vec![DataValue::Int64(4), DataValue::Boolean(true)],
         ];
         let batch1 = RecordBatch {
-            header: memtable_def.fields.clone(),
+            schema: memtable_ref.clone(),
             rows: row_batch1.clone(),
         };
         let batch2 = RecordBatch {
-            header: memtable_def.fields.clone(),
+            schema: memtable_ref.clone(),
             rows: row_batch2.clone(),
         };
-        let memtable = MemTable::try_new(Arc::new(memtable_def), vec![batch1, batch2])?;
+        let memtable = MemTable::try_new(memtable_ref, vec![batch1, batch2])?;
         let table_referene = TableReference::Bare {
             table: "testa".into(),
         };
         let table_ref = Arc::new(memtable);
         session.register_table(table_referene.clone(), table_ref.clone())?;
-        let schema = session.state.read().schema_for_ref(table_referene)?;
-        assert_eq!(schema.table_exist("testa"), true);
+        let database = session.state.read().database_for_ref(table_referene)?;
+        assert_eq!(database.table_exist("testa"), true);
         let exec = table_ref.scan(&session.state(), None, &[]).await?;
         let mut it = exec.execute()?;
         // note 1st unwrap is for option, 2nd the item of the stream is Result of RecordBatch, so use ?
