@@ -1,5 +1,4 @@
 use crate::common::types::DataValue;
-use crate::common::schema::Fields;
 use super::schema::SchemaRef;
 use anyhow::Context;
 use anyhow::Result;
