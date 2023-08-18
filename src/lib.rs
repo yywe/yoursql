@@ -5,3 +5,4 @@ pub mod expr;
 pub mod session;
 pub mod physical_plan;
 pub mod parser;
+pub mod logical_planner;
