@@ -21,8 +21,9 @@ async-fs = "1.6.0"
 futures-async-stream = "0.2"
 futures="0.3"
 derivative = "2.2.0"
-sqlparser = "0.34.0"
+sqlparser = {version = "0.34.0", features = ["visitor"] }
 opensrv-mysql = "0.4.0"
 mysql_common = "0.30.4"
 parking_lot = "0.12.1"
+hashbrown = "0.14.0"
 uuid = { version="1.0", features=["v4"] }

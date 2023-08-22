@@ -1,6 +1,6 @@
 use super::utils::parse_identifiers_normalized;
-use std::borrow::Cow;
 use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
 
 pub struct ResolvedTableReference<'a> {
     pub database: Cow<'a, str>,
@@ -48,10 +48,7 @@ impl<'a> TableReference<'a> {
 
     pub fn to_owned_reference(&self) -> OwnedTableReference {
         match self {
-            Self::Full {
-                database,
-                table,
-            } => OwnedTableReference::Full {
+            Self::Full { database, table } => OwnedTableReference::Full {
                 database: database.to_string().into(),
                 table: table.to_string().into(),
             },
@@ -80,18 +77,9 @@ impl<'a> TableReference<'a> {
         }
     }
 
-    pub fn resolve(
-        self,
-        default_database: &'a str,
-    ) -> ResolvedTableReference<'a> {
+    pub fn resolve(self, default_database: &'a str) -> ResolvedTableReference<'a> {
         match self {
-            Self::Full {
-                database,
-                table,
-            } => ResolvedTableReference {
-                database,
-                table,
-            },
+            Self::Full { database, table } => ResolvedTableReference { database, table },
             Self::Bare { table } => ResolvedTableReference {
                 database: default_database.into(),
                 table,
@@ -109,5 +97,28 @@ impl From<String> for OwnedTableReference {
 impl<'a> From<&'a str> for TableReference<'a> {
     fn from(s: &'a str) -> Self {
         Self::parse_str(s)
+    }
+}
+
+impl<'a> From<ResolvedTableReference<'a>> for TableReference<'a> {
+    fn from(resolved: ResolvedTableReference<'a>) -> Self {
+        Self::Full {
+            database: resolved.database,
+            table: resolved.table,
+        }
+    }
+}
+
+impl<'a> From<&'a OwnedTableReference> for TableReference<'a> {
+    fn from(value: &'a OwnedTableReference) -> Self {
+        match value {
+            OwnedTableReference::Bare { table } => TableReference::Bare {
+                table: Cow::Borrowed(table),
+            },
+            OwnedTableReference::Full { database, table } => TableReference::Full {
+                database: Cow::Borrowed(database),
+                table: Cow::Borrowed(table),
+            },
+        }
     }
 }

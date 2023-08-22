@@ -1,12 +1,14 @@
 pub mod utils;
+pub mod statement;
 pub mod query;
 pub mod mutation;
 
-use crate::{common::{table_reference::TableReference, config::ConfigOptions}, storage::Table};
+use crate::{common::{table_reference::{TableReference, OwnedTableReference}, config::ConfigOptions}, storage::Table};
 use crate::logical_planner::utils::normalize_ident;
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use std::sync::Arc;
 use sqlparser::ast::Ident;
+use sqlparser::ast::ObjectName;
 
 
 
@@ -74,5 +76,35 @@ impl<'a, C: PlannerContext> LogicalPlanner<'a, C> {
     }
     pub fn new(tables: &'a C) -> Self {
         Self::new_with_options(tables, ParserOptions::default())
+    }
+}
+
+pub fn object_name_to_table_refernce(object_name: ObjectName, enable_normalization: bool) -> Result<OwnedTableReference> {
+    let ObjectName(idents) = object_name;
+    idents_to_table_reference(idents, enable_normalization)
+}
+
+pub fn idents_to_table_reference(idents: Vec<Ident>, enable_normalization: bool) -> Result<OwnedTableReference> {
+    struct IdentTaker(Vec<Ident>);
+    impl IdentTaker {
+        fn take(&mut self, enable_normalization: bool) -> String {
+            let ident = self.0.pop().expect("no more identifiers");
+            IdentNormalizer::new(enable_normalization).normalize(ident)
+        }
+    }
+    let mut taker = IdentTaker(idents);
+    match taker.0.len() {
+        1 => {
+            let table = taker.take(enable_normalization);
+            Ok(OwnedTableReference::bare(table))
+        }
+        2 => {
+            let table = taker.take(enable_normalization);
+            let database = taker.take(enable_normalization);
+            Ok(OwnedTableReference::full(database, table))
+        }
+        _=> {
+            Err(anyhow!("Invalid identifier"))
+        }
     }
 }

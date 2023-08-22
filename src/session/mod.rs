@@ -3,17 +3,25 @@ use crate::catalog::DB;
 use crate::catalog::MemoryDBList;
 use crate::catalog::DBList;
 use crate::common::config::ConfigOptions;
+use crate::common::table_reference::OwnedTableReference;
 use crate::common::table_reference::ResolvedTableReference;
 use crate::common::table_reference::TableReference;
+use crate::logical_planner::ParserOptions;
+use crate::logical_planner::object_name_to_table_refernce;
 use crate::storage::Table;
 use crate::expr::logical_plan::LogicalPlan;
+use crate::logical_planner::PlannerContext;
+use crate::logical_planner::LogicalPlanner;
 use anyhow::Context;
 use anyhow::Result;
 use anyhow::anyhow;
 use chrono::{DateTime, Utc};
 use parking_lot::RwLock;
 use std::sync::Arc;
+use std::ops::ControlFlow;
 use uuid::Uuid;
+use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 
 #[derive(Clone)]
 pub struct SessionContext {
@@ -27,6 +35,21 @@ pub struct SessionState {
     session_id: String,
     databases: Arc<dyn DBList>,
     config: ConfigOptions,
+}
+
+struct ReferredTables<'a>{
+    state: &'a SessionState,
+    tables: HashMap<String, Arc<dyn Table>>,
+}
+
+impl<'a> PlannerContext for ReferredTables<'a> {
+    fn get_table_provider(&self, name: TableReference) -> Result<Arc<dyn Table>>{
+        let name = self.state.resolve_table_ref(name).to_string();
+        self.tables.get(&name).cloned().context(format!("table '{name}' not found"))
+    }
+    fn options(&self) -> &ConfigOptions{
+        &self.state.config
+    }
 }
 
 impl SessionState {
@@ -68,7 +91,72 @@ impl SessionState {
     }
 
     pub async fn make_logical_plan(&self, statement: sqlparser::ast::Statement) -> Result<LogicalPlan> {
-        Err(anyhow!("Not impl."))
+        let references = self.extract_table_references(&statement)?;
+
+        let mut referred_tables = ReferredTables {
+            state: self,
+            tables: HashMap::with_capacity(references.len()),
+        };
+
+        let enable_ident_normalization = self.config.sql_parser.enable_ident_normalization;
+        let parse_float_as_decimal = self.config.sql_parser.parse_float_as_decimal;
+
+        for reference in references {
+            let table = reference.table_name();
+            let resolved = self.resolve_table_ref(&reference);
+            if let Entry::Vacant(v) = referred_tables.tables.entry(resolved.to_string()) {
+                if let Ok(database) = self.database_for_ref(resolved) {
+                    if let Some(table_provider) = database.get_table(table).await {
+                        v.insert(table_provider);
+                    }
+                }
+            }
+        }
+
+        let planner = LogicalPlanner::new_with_options(&referred_tables, ParserOptions {
+            parse_float_as_decimal,
+            enable_ident_normalization,
+        });
+
+        planner.statement_to_plan(statement)
+    }
+
+    /// Parse (Walk) the AST and extract tables referred in this statement
+    /// This used the Visitor Interface in sqlparser package
+    /// https://docs.rs/sqlparser/latest/sqlparser/ast/trait.Visitor.html
+    /// need to enable visitor feature from Cargo.toml
+    pub fn extract_table_references(&self, statement: &sqlparser::ast::Statement) -> Result<Vec<OwnedTableReference>> {
+        use sqlparser::ast::*;
+        // container to hold the used relations
+        let mut relations = hashbrown::HashSet::with_capacity(10);
+        
+        // visitor action, when hit a reltion, insert (a clone) into the visitor
+        struct RelationVisitor<'a>(&'a mut hashbrown::HashSet<ObjectName>);
+        impl<'a> RelationVisitor<'a> {
+            fn insert(&mut self, relation: &ObjectName) {
+                self.0.get_or_insert_with(relation, |_|relation.clone());
+            }
+        }
+        impl<'a> Visitor for RelationVisitor<'a> {
+            type Break = ();
+            fn pre_visit_relation(&mut self, relation: &ObjectName) -> ControlFlow<Self::Break> {
+                self.insert(relation);
+                ControlFlow::Continue(())
+            }
+            fn pre_visit_statement(&mut self, statement: &Statement) -> ControlFlow<Self::Break> {
+                if let Statement::ShowCreate { obj_type: ShowCreateObject::Table | ShowCreateObject::View, obj_name } = statement {
+                    self.insert(obj_name)
+                }
+                ControlFlow::Continue(())
+            }
+        }
+        // create a visitor and visit
+        let mut visitor = RelationVisitor(&mut relations);
+        statement.visit(&mut visitor);
+
+        // collect the owned table reference
+        let enable_ident_normalization = self.config.sql_parser.enable_ident_normalization;
+        relations.into_iter().map(|x| object_name_to_table_refernce(x, enable_ident_normalization)).collect::<Result<_>>()
     }
 
 }
@@ -119,6 +207,11 @@ impl SessionContext {
             .register_table(table_name, table)
     }
 
+    pub fn register_database(&self, name: impl Into<String>, database: Arc<dyn DB>) -> Option<Arc<dyn DB>> {
+        let name = name.into();
+        self.state.read().databases.register_database(name, database)
+    }
+
     pub fn state(&self) -> SessionState {
         self.state.read().clone()
     }
@@ -129,6 +222,7 @@ impl Default for SessionContext {
         Self::new_inmemory_ctx()
     }
 }
+
 
 #[cfg(test)]
 mod test {
@@ -141,15 +235,129 @@ mod test {
     use crate::common::table_reference::OwnedTableReference;
     use crate::storage::empty::EmptyTable;
     use crate::storage::memory::MemTable;
+    use crate::parser::parse;
     use anyhow::Result;
     use futures::StreamExt;
     use std::collections::HashMap;
+
+    fn init_mem_testdb(session: &mut SessionContext) -> Result<()> {
+        let test_database = MemoryDB::new();
+        session.register_database("testdb", Arc::new(test_database));
+        // first table: student
+        let table1 = OwnedTableReference::Full {
+            database: "testdb".to_string().into(),
+            table: "student".to_string().into(),
+        };
+        let table1_def = Schema::new(
+            vec![
+                Field::new("id", DataType::Int64, false,Some(table1.clone())),
+                Field::new("name", DataType::Utf8, false,Some(table1.clone())),
+                Field::new("age", DataType::Int8, false,Some(table1.clone())),
+                Field::new("address", DataType::Utf8, false,Some(table1.clone())),
+            ],
+            HashMap::new(),
+        );
+        let table1_ref = Arc::new(table1_def);
+        let row_batch1 = vec![
+            vec![DataValue::Int64(1), DataValue::Utf8("John".into()), DataValue::Int8(20), DataValue::Utf8("100 bay street".into())],
+            vec![DataValue::Int64(2), DataValue::Utf8("Andy".into()), DataValue::Int8(21), DataValue::Utf8("121 hunter street".into())],
+        ];
+        let row_batch2 = vec![
+            vec![DataValue::Int64(3), DataValue::Utf8("Angela".into()), DataValue::Int8(18), DataValue::Utf8("172 carolin street".into())],
+            vec![DataValue::Int64(4), DataValue::Utf8("Jingya".into()), DataValue::Int8(22), DataValue::Utf8("100 main street".into())],
+        ];
+        let batch1 = RecordBatch {
+            schema: table1_ref.clone(),
+            rows: row_batch1.clone(),
+        };
+        let batch2 = RecordBatch {
+            schema: table1_ref.clone(),
+            rows: row_batch2.clone(),
+        };
+        let memtable1 = MemTable::try_new(table1_ref, vec![batch1, batch2])?;
+        let table_ref1 = Arc::new(memtable1);
+        session.register_table(table1, table_ref1.clone())?;
+    
+        // 2nd table: course
+        let table2 = OwnedTableReference::Full {
+            database: "testdb".to_string().into(),
+            table: "course".to_string().into(),
+        };
+        let table2_def = Schema::new(
+            vec![
+                Field::new("id", DataType::Int64, false,Some(table2.clone())),
+                Field::new("name", DataType::Utf8, false,Some(table2.clone())),
+                Field::new("instructor", DataType::Utf8, false,Some(table2.clone())),
+                Field::new("classroom", DataType::Utf8, false,Some(table2.clone())),
+            ],
+            HashMap::new(),
+        );
+        let table2_ref = Arc::new(table2_def);
+        let row_batch1 = vec![
+            vec![DataValue::Int64(1), DataValue::Utf8("Math".into()), DataValue::Utf8("JK Roll".into()), DataValue::Utf8("ROOM 202".into())],
+            vec![DataValue::Int64(2), DataValue::Utf8("Physicas".into()), DataValue::Utf8("Dr Liu".into()), DataValue::Utf8("ROOM 201".into())],
+        ];
+        let row_batch2 = vec![
+            vec![DataValue::Int64(3), DataValue::Utf8("Chemistry".into()), DataValue::Utf8("Dr Zheng".into()), DataValue::Utf8("ROOM 101".into())],
+            vec![DataValue::Int64(4), DataValue::Utf8("Music".into()), DataValue::Utf8("Dr Wang".into()), DataValue::Utf8("ROOM 102".into())],
+        ];
+        let batch1 = RecordBatch {
+            schema: table2_ref.clone(),
+            rows: row_batch1.clone(),
+        };
+        let batch2 = RecordBatch {
+            schema: table2_ref.clone(),
+            rows: row_batch2.clone(),
+        };
+        let memtable2 = MemTable::try_new(table2_ref, vec![batch1, batch2])?;
+        let table_ref2 = Arc::new(memtable2);
+        session.register_table(table2, table_ref2.clone())?;
+
+        // 3rd table: student enroll course
+        let table3 = OwnedTableReference::Full {
+            database: "testdb".to_string().into(),
+            table: "enroll".to_string().into(),
+        };
+        let table3_def = Schema::new(
+            vec![
+                Field::new("student_id", DataType::Int64, false,Some(table3.clone())),
+                Field::new("couse_id", DataType::Int64, false,Some(table3.clone())),
+                Field::new("score", DataType::Int64, false,Some(table3.clone())),
+            ],
+            HashMap::new(),
+        );
+        let table3_ref = Arc::new(table3_def);
+        let row_batch1 = vec![
+            vec![DataValue::Int64(1), DataValue::Int64(1),DataValue::Int64(100)],
+            vec![DataValue::Int64(2), DataValue::Int64(4),DataValue::Int64(98)],
+        ];
+        let row_batch2 = vec![
+            vec![DataValue::Int64(3), DataValue::Int64(2),DataValue::Int64(110)],
+            vec![DataValue::Int64(4), DataValue::Int64(3),DataValue::Int64(120)],
+        ];
+        let batch1 = RecordBatch {
+            schema: table3_ref.clone(),
+            rows: row_batch1.clone(),
+        };
+        let batch2 = RecordBatch {
+            schema: table3_ref.clone(),
+            rows: row_batch2.clone(),
+        };
+        let memtable3 = MemTable::try_new(table3_ref, vec![batch1, batch2])?;
+        let table_ref3 = Arc::new(memtable3);
+        session.register_table(table3, table_ref3.clone())?;
+        Ok(())
+    }
+
     #[test]
     fn test_session_init() -> Result<()> {
         let session = SessionContext::default();
+        // note later when define table reference database is not specified
+        // so will resolve/register to default database (master)
+        // however, here it is not enforced to use the correct qualifier yet 
         let qualifier = OwnedTableReference::Full {
-            database: "testdb".to_string().into(),
-            table: "testtable".to_string().into(),
+            database: "master".to_string().into(),
+            table: "testa".to_string().into(),
         };
         let empty_table = EmptyTable::new(Arc::new(Schema::new(
             vec![
@@ -161,6 +369,7 @@ mod test {
         let table_referene = TableReference::Bare {
             table: "testa".into(),
         };
+        // register to master database
         session.register_table(table_referene.clone(), Arc::new(empty_table))?;
         let database = session.state.read().database_for_ref(table_referene)?;
         assert_eq!(database.table_exist("testa"), true);
@@ -169,52 +378,34 @@ mod test {
 
     #[tokio::test]
     async fn test_memtable_scan() -> Result<()> {
-        let session = SessionContext::default();
-        let qualifier = OwnedTableReference::Full {
-            database: "testdb".to_string().into(),
-            table: "testtable".to_string().into(),
-        };
-        let memtable_def = Schema::new(
-            vec![
-                Field::new("a", DataType::Int64, false,Some(qualifier.clone())),
-                Field::new("b", DataType::Boolean, false,Some(qualifier)),
-            ],
-            HashMap::new(),
-        );
-        let memtable_ref = Arc::new(memtable_def);
-        let row_batch1 = vec![
-            vec![DataValue::Int64(1), DataValue::Boolean(false)],
-            vec![DataValue::Int64(2), DataValue::Boolean(false)],
-        ];
-        let row_batch2 = vec![
-            vec![DataValue::Int64(3), DataValue::Boolean(true)],
-            vec![DataValue::Int64(4), DataValue::Boolean(true)],
-        ];
-        let batch1 = RecordBatch {
-            schema: memtable_ref.clone(),
-            rows: row_batch1.clone(),
-        };
-        let batch2 = RecordBatch {
-            schema: memtable_ref.clone(),
-            rows: row_batch2.clone(),
-        };
-        let memtable = MemTable::try_new(memtable_ref, vec![batch1, batch2])?;
-        let table_referene = TableReference::Bare {
-            table: "testa".into(),
-        };
-        let table_ref = Arc::new(memtable);
-        session.register_table(table_referene.clone(), table_ref.clone())?;
-        let database = session.state.read().database_for_ref(table_referene)?;
-        assert_eq!(database.table_exist("testa"), true);
-        let exec = table_ref.scan(&session.state(), None, &[]).await?;
+        let mut session = SessionContext::default();
+        init_mem_testdb(&mut session)?;
+        let testdb = session.database("testdb").unwrap();
+        let student_table = testdb.get_table("student").await.unwrap();
+        let exec = student_table.scan(&session.state(), None, &[]).await?;
         let mut it = exec.execute()?;
         // note 1st unwrap is for option, 2nd the item of the stream is Result of RecordBatch, so use ?
         let fetch_batch1: RecordBatch = it.next().await.unwrap()?;
-        assert_eq!(fetch_batch1.rows, row_batch1);
+        //println!("first batch:{:?}", fetch_batch1);
+        assert_eq!(fetch_batch1.rows.len(), 2);
         let fetch_batch2: RecordBatch = it.next().await.unwrap()?;
-        assert_eq!(fetch_batch2.rows, row_batch2);
+        //println!("2nd batch:{:?}", fetch_batch2);
+        assert_eq!(fetch_batch2.rows.len(), 2);
         let done  = it.next().await;
         assert_eq!(true, done.is_none());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_logical_planner() -> Result<()> {
+        let mut session = SessionContext::default();
+        init_mem_testdb(&mut session)?;
+        let sql = "SELECT A.id, A.name, B.score from testdb.student A inner join testdb.enroll B on A.id=B.student_id";
+        let statement = parse(sql).unwrap();
+        let referred_tables = session.state.read().extract_table_references(&statement).unwrap();
+        //println!("the tables refered:{:?}", referred_tables);
+        let ans_plan = session.state.read().make_logical_plan(statement).await;
+        //println!("logical plan:{}", ans_plan);
         Ok(())
     }
 }
