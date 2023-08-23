@@ -14,7 +14,6 @@ use crate::logical_planner::PlannerContext;
 use crate::logical_planner::LogicalPlanner;
 use anyhow::Context;
 use anyhow::Result;
-use anyhow::anyhow;
 use chrono::{DateTime, Utc};
 use parking_lot::RwLock;
 use std::sync::Arc;
@@ -350,19 +349,12 @@ mod test {
     }
 
     #[test]
-    fn test_session_init() -> Result<()> {
+    fn test_register_table() -> Result<()> {
         let session = SessionContext::default();
-        // note later when define table reference database is not specified
-        // so will resolve/register to default database (master)
-        // however, here it is not enforced to use the correct qualifier yet 
-        let qualifier = OwnedTableReference::Full {
-            database: "master".to_string().into(),
-            table: "testa".to_string().into(),
-        };
         let empty_table = EmptyTable::new(Arc::new(Schema::new(
             vec![
-                Field::new("a", DataType::Int64, false,Some(qualifier.clone())),
-                Field::new("b", DataType::Boolean, false,Some(qualifier)),
+                Field::new("a", DataType::Int64, false,  None),
+                Field::new("b", DataType::Boolean, false, None),
             ],
             HashMap::new(),
         )));
@@ -371,6 +363,7 @@ mod test {
         };
         // register to master database
         session.register_table(table_referene.clone(), Arc::new(empty_table))?;
+        // assert "testa" exist in default(master) database
         let database = session.state.read().database_for_ref(table_referene)?;
         assert_eq!(database.table_exist("testa"), true);
         Ok(())
@@ -400,10 +393,10 @@ mod test {
     async fn test_logical_planner() -> Result<()> {
         let mut session = SessionContext::default();
         init_mem_testdb(&mut session)?;
-        let sql = "SELECT A.id, A.name, B.score from testdb.student A inner join testdb.enroll B on A.id=B.student_id";
+        let sql = "SELECT A.id, A.name, B.score from testdb.student A inner join testdb.enroll B on A.id=B.student_id inner join testdb.course C on A.id=C.id where B.score > 99 order by B.score";
         let statement = parse(sql).unwrap();
         let referred_tables = session.state.read().extract_table_references(&statement).unwrap();
-        //println!("the tables refered:{:?}", referred_tables);
+        //println!("referered tables: {:#?}", referred_tables);
         let ans_plan = session.state.read().make_logical_plan(statement).await;
         //println!("logical plan:{}", ans_plan);
         Ok(())
