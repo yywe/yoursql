@@ -4,6 +4,10 @@ refactor test code in session/mod.rs, prepare imple in-memory test database uins
 
 at least 2 tables;
 
-impl plan_query
-impl display for logical plan
+
+finalize expression and other utils
+
+1.define the set of logical plans
+2. impl plan_query
+3. impl display for logical plan
 
