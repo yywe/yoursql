@@ -86,6 +86,22 @@ pub struct Limit {
     pub input: Arc<LogicalPlan>,
 }
 
+impl LogicalPlan {
+    /// get the output schema from this logical plan node
+    pub fn output_schema(&self) -> SchemaRef {
+        match self {
+            LogicalPlan::EmptyRelation(EmptyRelation {schema,..}) => schema.clone(),
+            LogicalPlan::TableScan(TableScan{projected_schema,..})=>projected_schema.clone(),
+            LogicalPlan::Filter(Filter{input,..})=> input.output_schema(),
+            LogicalPlan::Aggregate(Aggregate{schema,..}) => schema.clone(),
+            LogicalPlan::Sort(Sort{input,..}) => input.output_schema(),
+            LogicalPlan::Join(Join{schema,..})=> schema.clone(),
+            LogicalPlan::Limit(Limit{input,..})=>input.output_schema(),
+            LogicalPlan::Projection(Projection {schema,..})=>schema.clone(),
+        }
+    }
+}
+
 impl Projection {
     pub fn try_new_with_schema(
         exprs: Vec<Expr>,

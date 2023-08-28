@@ -3,6 +3,8 @@ use crate::common::{
     types::DataType,
 };
 use crate::expr::expr::BinaryExpr;
+use crate::expr::logical_plan::LogicalPlan;
+use crate::expr::logical_plan::Aggregate;
 use crate::expr::expr::Expr;
 use anyhow::{anyhow, Result};
 
@@ -100,4 +102,33 @@ impl ExprToSchema for Expr {
             "data type cast not supported yet"
         ))
     }
+}
+
+
+
+/// given a list of expressions and the relevant input logical plan, generate a list of fields
+/// plan is the input plan node
+pub fn exprlist_to_fields<'a>(exprs: impl IntoIterator<Item = &'a Expr>, plan: &LogicalPlan) -> Result<Vec<Field>> {
+    let exprs = exprs.into_iter().cloned().collect::<Vec<Expr>>();
+    let fields = match plan {
+        LogicalPlan::Aggregate(agg)=>{
+            Some(expr_list_to_fields_aggregate(&exprs, plan, agg))
+        }
+        _ => None
+    };
+    if let Some(fields) = fields {
+        fields
+    }else{
+        let res_schema = plan.output_schema();
+        exprs.iter().map(|e|e.to_field(&res_schema)).collect()
+    }
+}
+
+
+/// given expressions and a aggregate plan, generate the list of fields
+fn expr_list_to_fields_aggregate(exprs: &[Expr], plan: &LogicalPlan, agg: &Aggregate)->Result<Vec<Field>> {
+    
+    return Err(anyhow!(
+        "todo: "
+    ))
 }

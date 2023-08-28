@@ -1,7 +1,7 @@
 use crate::common::{column::Column, types::DataValue};
 use anyhow::{Result,anyhow};
 
-#[derive(Debug)]
+#[derive(Debug,Clone)]
 pub enum Expr {
     Alias(Box<Expr>, String),
     Column(Column),
@@ -21,7 +21,7 @@ pub enum Expr {
     QualifiedWildcard {qualifier: String},
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct BinaryExpr {
     pub left: Box<Expr>,
     pub op: Operator,
@@ -51,7 +51,7 @@ impl std::fmt::Display for BinaryExpr {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug,Clone)]
 pub enum Operator {
     Eq,
     NotEq,
@@ -68,7 +68,7 @@ pub enum Operator {
     Or,
 }
 
-#[derive(Debug)]
+#[derive(Debug,Clone)]
 pub struct Like {
     pub negated: bool,
     pub expr: Box<Expr>,
@@ -76,7 +76,7 @@ pub struct Like {
     pub escape_char: Option<char>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Between {
     pub expr: Box<Expr>,
     pub negated: bool,
@@ -240,3 +240,4 @@ impl std::fmt::Display for Expr {
         }
     }
 }
+

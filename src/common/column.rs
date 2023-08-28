@@ -1,6 +1,6 @@
 use super::{table_reference::OwnedTableReference, utils::parse_identifiers_normalized};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Column {
     pub relation: Option<OwnedTableReference>,
     pub name: String,
