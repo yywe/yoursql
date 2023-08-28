@@ -5,96 +5,144 @@ use std::time::{Duration, UNIX_EPOCH};
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum DataValue {
     Null,
-    Boolean(bool),
-    Float32(f32),
-    Float64(f64),
-    Int8(i8),
-    Int16(i16),
-    Int32(i32),
-    Int64(i64),
-    UInt8(u8),
-    UInt16(u16),
-    UInt32(u32),
-    UInt64(u64),
-    Utf8(String),
-    Binary(Vec<u8>),
+    Boolean(Option<bool>),
+    Float32(Option<f32>),
+    Float64(Option<f64>),
+    Int8(Option<i8>),
+    Int16(Option<i16>),
+    Int32(Option<i32>),
+    Int64(Option<i64>),
+    UInt8(Option<u8>),
+    UInt16(Option<u16>),
+    UInt32(Option<u32>),
+    UInt64(Option<u64>),
+    Utf8(Option<String>),
+    Binary(Option<Vec<u8>>),
     /// Date stored as a signed 32bit int days since UNIX epoch 1970-01-01
-    Date32(i32),
+    Date32(Option<i32>),
     /// Date stored as a signed 64bit int milliseconds since UNIX epoch 1970-01-01
-    Date64(i64),
+    Date64(Option<i64>),
     /// Time stored as a signed 32bit int as seconds since midnight
-    Time32Second(i32),
+    Time32Second(Option<i32>),
     /// Time stored as a signed 32bit int as milliseconds since midnight
-    Time32Millisecond(i32),
+    Time32Millisecond(Option<i32>),
     /// Time stored as a signed 64bit int as microseconds since midnight
-    Time64Microsecond(i64),
+    Time64Microsecond(Option<i64>),
     /// Time stored as a signed 64bit int as nanoseconds since midnight
-    Time64Nanosecond(i64),
+    Time64Nanosecond(Option<i64>),
+}
+
+macro_rules! format_option {
+    ($F: expr, $EXPR: expr) => {
+        match $EXPR {
+            Some(e) => write!($F, "{e}"),
+            None => write!($F, "NULL"),
+        }
+    };
 }
 
 impl std::fmt::Display for DataValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(
+        
             match self {
-                DataValue::Null => "NULL".to_string(),
-                DataValue::Boolean(b) => {
-                    if *b {
-                        "TRUE".to_string()
-                    } else {
-                        "FALSE".to_string()
+                DataValue::Null =>  write!(f, "NULL")?,
+                DataValue::Boolean(e)=>format_option!(f,e)?,
+                DataValue::Float32(e) =>format_option!(f,e)?,
+                DataValue::Float64(e) => format_option!(f,e)?,
+                DataValue::Int8(e) => format_option!(f,e)?,
+                DataValue::Int16(e) => format_option!(f,e)?,
+                DataValue::Int32(e) => format_option!(f,e)?,
+                DataValue::Int64(e) => format_option!(f,e)?,
+                DataValue::UInt8(e) => format_option!(f,e)?,
+                DataValue::UInt16(e) => format_option!(f,e)?,
+                DataValue::UInt32(e) => format_option!(f,e)?,
+                DataValue::UInt64(e) => format_option!(f,e)?,
+                DataValue::Utf8(e) => format_option!(f,e)?,
+                DataValue::Binary(e) => match e {
+                    Some(l) => write!(
+                        f, "{}", l.iter().map(|v|format!("{v}")).collect::<Vec<_>>().join(",")
+                    )?,
+                    None=>write!(f,"NULL")?,
+                },
+                DataValue::Date32(e) => {
+                    match e {
+                        Some(d) => {
+                            let t = UNIX_EPOCH + Duration::from_secs(*d as u64);
+                            let datetime = DateTime::<Utc>::from(t);
+                            write!(f, "{}", datetime.format("%Y-%m-%d").to_string())?;
+                        },
+                        None=> {
+                            write!(f,"NULL")?
+                        }
                     }
                 }
-                DataValue::Float32(n) => n.to_string(),
-                DataValue::Float64(n) => n.to_string(),
-                DataValue::Int8(n) => n.to_string(),
-                DataValue::Int16(n) => n.to_string(),
-                DataValue::Int32(n) => n.to_string(),
-                DataValue::Int64(n) => n.to_string(),
-                DataValue::UInt8(n) => n.to_string(),
-                DataValue::UInt16(n) => n.to_string(),
-                DataValue::UInt32(n) => n.to_string(),
-                DataValue::UInt64(n) => n.to_string(),
-                DataValue::Utf8(s) => s.to_owned(),
-                DataValue::Binary(b) => b
-                    .iter()
-                    .map(|v| format!("{v}"))
-                    .collect::<Vec<_>>()
-                    .join(","),
-                DataValue::Date32(d) => {
-                    let t = UNIX_EPOCH + Duration::from_secs(*d as u64);
-                    let datetime = DateTime::<Utc>::from(t);
-                    datetime.format("%Y-%m-%d").to_string()
+                DataValue::Date64(e) => {
+                    match e {
+                        Some(d) => {
+                            let t = UNIX_EPOCH + Duration::from_secs(*d as u64);
+                            let datetime = DateTime::<Utc>::from(t);
+                            write!(f, "{}",datetime.format("%Y-%m-%d").to_string())?
+                        },
+                        None=>{
+                            write!(f,"NULL")?
+                        }
+                    }
                 }
-                DataValue::Date64(d) => {
-                    let t = UNIX_EPOCH + Duration::from_secs(*d as u64);
-                    let datetime = DateTime::<Utc>::from(t);
-                    datetime.format("%Y-%m-%d").to_string()
+                DataValue::Time32Second(e) => {
+                    match e {
+                        Some(d)=>{
+                            let t = UNIX_EPOCH + Duration::from_secs(*d as u64);
+                            let datetime = DateTime::<Utc>::from(t);
+                            write!(f,"{}",datetime.format("%Y-%m-%d %H:%M:%S.%f").to_string())?
+                        },
+                        None=>{
+                            write!(f,"NULL")?
+                        }
+                    }
                 }
-                DataValue::Time32Second(d) => {
-                    let t = UNIX_EPOCH + Duration::from_secs(*d as u64);
-                    let datetime = DateTime::<Utc>::from(t);
-                    datetime.format("%Y-%m-%d %H:%M:%S.%f").to_string()
+                DataValue::Time32Millisecond(e) => {
+                    match e {
+                        Some(d)=>{
+                            let t = UNIX_EPOCH + Duration::from_millis(*d as u64);
+                            let datetime = DateTime::<Utc>::from(t);
+                            write!(f,"{}",datetime.format("%Y-%m-%d %H:%M:%S.%f").to_string())?
+                        }
+                        None=>{
+                            write!(f,"NULL")?
+                        }
+                    }
                 }
-                DataValue::Time32Millisecond(d) => {
-                    let t = UNIX_EPOCH + Duration::from_millis(*d as u64);
-                    let datetime = DateTime::<Utc>::from(t);
-                    datetime.format("%Y-%m-%d %H:%M:%S.%f").to_string()
+
+                DataValue::Time64Microsecond(e) => {
+                    match e {
+                        Some(d)=>{
+                            let t = UNIX_EPOCH + Duration::from_micros(*d as u64);
+                            let datetime = DateTime::<Utc>::from(t);
+                            write!(f,"{}",datetime.format("%Y-%m-%d %H:%M:%S.%f").to_string())?
+                        },
+                        None=>{
+                            write!(f,"NULL")?
+                        }
+                    }
                 }
-                DataValue::Time64Microsecond(d) => {
-                    let t = UNIX_EPOCH + Duration::from_micros(*d as u64);
-                    let datetime = DateTime::<Utc>::from(t);
-                    datetime.format("%Y-%m-%d %H:%M:%S.%f").to_string()
-                }
-                DataValue::Time64Nanosecond(d) => {
-                    let t = UNIX_EPOCH + Duration::from_nanos(*d as u64);
-                    let datetime = DateTime::<Utc>::from(t);
-                    datetime.format("%Y-%m-%d %H:%M:%S.%f").to_string()
+                DataValue::Time64Nanosecond(e) => {
+                    match e {
+                        Some(d)=>{
+                            let t = UNIX_EPOCH + Duration::from_nanos(*d as u64);
+                            let datetime = DateTime::<Utc>::from(t);
+                            write!(f,"{}",datetime.format("%Y-%m-%d %H:%M:%S.%f").to_string())?
+                        },
+                        None=>{
+                            write!(f,"NULL")?
+                        }
+                    }
                 }
             }
-            .as_ref(),
-        )
+            Ok(())
     }
 }
+
+
 
 #[derive(Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
 pub enum DataType {
@@ -118,4 +166,57 @@ pub enum DataType {
     Time32Millisecond,
     Time64Microsecond,
     Time64Nanosecond,
+}
+
+
+impl DataValue {
+    pub fn get_datatype(&self) -> DataType {
+        match self {
+            DataValue::Null => DataType::Null,
+            DataValue::Boolean(_) =>DataType::Boolean,
+            DataValue::Float32(_) => DataType::Float32,
+            DataValue::Float64(_) => DataType::Float64,
+            DataValue::Int8(_) => DataType::Int8,
+            DataValue::Int16(_) => DataType::Int16,
+            DataValue::Int32(_)=> DataType::Int32,
+            DataValue::Int64(_) => DataType::Int64,
+            DataValue::UInt8(_)=> DataType::UInt8,
+            DataValue::UInt16(_)=>DataType::UInt16,
+            DataValue::UInt32(_)=>DataType::UInt32,
+            DataValue::UInt64(_)=>DataType::UInt64,
+            DataValue::Utf8(_)=>DataType::Utf8,
+            DataValue::Binary(_)=>DataType::Binary,
+            DataValue::Date32(_)=>DataType::Date32,
+            DataValue::Date64(_)=>DataType::Date64,
+            DataValue::Time32Second(_)=>DataType::Time32Second,
+            DataValue::Time32Millisecond(_)=>DataType::Time32Millisecond,
+            DataValue::Time64Microsecond(_)=>DataType::Time64Microsecond,
+            DataValue::Time64Nanosecond(_)=>DataType::Time64Nanosecond,
+        }
+    }
+
+    pub fn is_null(&self) -> bool {
+        match self {
+            DataValue::Null => true,
+            DataValue::Boolean(v) =>v.is_none(),
+            DataValue::Float32(v) => v.is_none(),
+            DataValue::Float64(v) =>  v.is_none(),
+            DataValue::Int8(v) =>  v.is_none(),
+            DataValue::Int16(v) =>  v.is_none(),
+            DataValue::Int32(v)=>  v.is_none(),
+            DataValue::Int64(v) =>  v.is_none(),
+            DataValue::UInt8(v)=>  v.is_none(),
+            DataValue::UInt16(v)=> v.is_none(),
+            DataValue::UInt32(v)=> v.is_none(),
+            DataValue::UInt64(v)=> v.is_none(),
+            DataValue::Utf8(v)=> v.is_none(),
+            DataValue::Binary(v)=> v.is_none(),
+            DataValue::Date32(v)=> v.is_none(),
+            DataValue::Date64(v)=> v.is_none(),
+            DataValue::Time32Second(v)=> v.is_none(),
+            DataValue::Time32Millisecond(v)=> v.is_none(),
+            DataValue::Time64Microsecond(v)=> v.is_none(),
+            DataValue::Time64Nanosecond(v)=> v.is_none(),
+        }
+    }
 }

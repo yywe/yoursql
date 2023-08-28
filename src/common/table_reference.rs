@@ -63,6 +63,14 @@ impl<'a> TableReference<'a> {
             Self::Full { table, .. } | Self::Bare { table } => table,
         }
     }
+
+    pub fn database_name(&self) -> Option<&str> {
+        match self {
+            Self::Full { database, ..} => Some(database),
+            _=>None
+        }
+    }
+
     pub fn parse_str(s: &'a str) -> Self {
         let mut parts = parse_identifiers_normalized(s);
         match parts.len() {
@@ -119,6 +127,15 @@ impl<'a> From<&'a OwnedTableReference> for TableReference<'a> {
                 database: Cow::Borrowed(database),
                 table: Cow::Borrowed(table),
             },
+        }
+    }
+}
+
+impl std::fmt::Display for TableReference<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TableReference::Bare { table } => write!(f, "{table}"),
+            TableReference::Full { database, table } => write!(f, "{database}.{table}")
         }
     }
 }

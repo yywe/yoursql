@@ -258,12 +258,12 @@ mod test {
         );
         let table1_ref = Arc::new(table1_def);
         let row_batch1 = vec![
-            vec![DataValue::Int64(1), DataValue::Utf8("John".into()), DataValue::Int8(20), DataValue::Utf8("100 bay street".into())],
-            vec![DataValue::Int64(2), DataValue::Utf8("Andy".into()), DataValue::Int8(21), DataValue::Utf8("121 hunter street".into())],
+            vec![DataValue::Int64(Some(1)), DataValue::Utf8(Some("John".into())), DataValue::Int8(Some(20)), DataValue::Utf8(Some("100 bay street".into()))],
+            vec![DataValue::Int64(Some(2)), DataValue::Utf8(Some("Andy".into())), DataValue::Int8(Some(21)), DataValue::Utf8(Some("121 hunter street".into()))],
         ];
         let row_batch2 = vec![
-            vec![DataValue::Int64(3), DataValue::Utf8("Angela".into()), DataValue::Int8(18), DataValue::Utf8("172 carolin street".into())],
-            vec![DataValue::Int64(4), DataValue::Utf8("Jingya".into()), DataValue::Int8(22), DataValue::Utf8("100 main street".into())],
+            vec![DataValue::Int64(Some(3)), DataValue::Utf8(Some("Angela".into())), DataValue::Int8(Some(18)), DataValue::Utf8(Some("172 carolin street".into()))],
+            vec![DataValue::Int64(Some(4)), DataValue::Utf8(Some("Jingya".into())), DataValue::Int8(Some(22)), DataValue::Utf8(Some("100 main street".into()))],
         ];
         let batch1 = RecordBatch {
             schema: table1_ref.clone(),
@@ -293,12 +293,12 @@ mod test {
         );
         let table2_ref = Arc::new(table2_def);
         let row_batch1 = vec![
-            vec![DataValue::Int64(1), DataValue::Utf8("Math".into()), DataValue::Utf8("JK Roll".into()), DataValue::Utf8("ROOM 202".into())],
-            vec![DataValue::Int64(2), DataValue::Utf8("Physicas".into()), DataValue::Utf8("Dr Liu".into()), DataValue::Utf8("ROOM 201".into())],
+            vec![DataValue::Int64(Some(1)), DataValue::Utf8(Some("Math".into())), DataValue::Utf8(Some("JK Roll".into())), DataValue::Utf8(Some("ROOM 202".into()))],
+            vec![DataValue::Int64(Some(2)), DataValue::Utf8(Some("Physicas".into())), DataValue::Utf8(Some("Dr Liu".into())), DataValue::Utf8(Some("ROOM 201".into()))],
         ];
         let row_batch2 = vec![
-            vec![DataValue::Int64(3), DataValue::Utf8("Chemistry".into()), DataValue::Utf8("Dr Zheng".into()), DataValue::Utf8("ROOM 101".into())],
-            vec![DataValue::Int64(4), DataValue::Utf8("Music".into()), DataValue::Utf8("Dr Wang".into()), DataValue::Utf8("ROOM 102".into())],
+            vec![DataValue::Int64(Some(3)), DataValue::Utf8(Some("Chemistry".into())), DataValue::Utf8(Some("Dr Zheng".into())), DataValue::Utf8(Some("ROOM 101".into()))],
+            vec![DataValue::Int64(Some(4)), DataValue::Utf8(Some("Music".into())), DataValue::Utf8(Some("Dr Wang".into())), DataValue::Utf8(Some("ROOM 102".into()))],
         ];
         let batch1 = RecordBatch {
             schema: table2_ref.clone(),
@@ -327,12 +327,12 @@ mod test {
         );
         let table3_ref = Arc::new(table3_def);
         let row_batch1 = vec![
-            vec![DataValue::Int64(1), DataValue::Int64(1),DataValue::Int64(100)],
-            vec![DataValue::Int64(2), DataValue::Int64(4),DataValue::Int64(98)],
+            vec![DataValue::Int64(Some(1)), DataValue::Int64(Some(1)),DataValue::Int64(Some(100))],
+            vec![DataValue::Int64(Some(2)), DataValue::Int64(Some(4)),DataValue::Int64(Some(98))],
         ];
         let row_batch2 = vec![
-            vec![DataValue::Int64(3), DataValue::Int64(2),DataValue::Int64(110)],
-            vec![DataValue::Int64(4), DataValue::Int64(3),DataValue::Int64(120)],
+            vec![DataValue::Int64(Some(3)), DataValue::Int64(Some(2)),DataValue::Int64(Some(110))],
+            vec![DataValue::Int64(Some(4)), DataValue::Int64(Some(3)),DataValue::Int64(Some(120))],
         ];
         let batch1 = RecordBatch {
             schema: table3_ref.clone(),

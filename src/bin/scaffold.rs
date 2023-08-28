@@ -36,26 +36,26 @@ async fn main() -> Result<()> {
     let memtable_ref = Arc::new(memtable_def);
     let row_batch1 = vec![
         vec![
-            DataValue::Int64(1),
-            DataValue::Boolean(false),
-            DataValue::Utf8("hello".into()),
+            DataValue::Int64(Some(1)),
+            DataValue::Boolean(Some(false)),
+            DataValue::Utf8(Some("hello".into())),
         ],
         vec![
-            DataValue::Int64(2),
-            DataValue::Boolean(false),
-            DataValue::Utf8("world".into()),
+            DataValue::Int64(Some(2)),
+            DataValue::Boolean(Some(false)),
+            DataValue::Utf8(Some("world".into())),
         ],
     ];
     let row_batch2 = vec![
         vec![
-            DataValue::Int64(3),
-            DataValue::Boolean(true),
-            DataValue::Utf8("your".into()),
+            DataValue::Int64(Some(3)),
+            DataValue::Boolean(Some(true)),
+            DataValue::Utf8(Some("your".into())),
         ],
         vec![
-            DataValue::Int64(4),
-            DataValue::Boolean(true),
-            DataValue::Utf8("sql".into()),
+            DataValue::Int64(Some(4)),
+            DataValue::Boolean(Some(true)),
+            DataValue::Utf8(Some("sql".into())),
         ],
     ];
     let batch1 = RecordBatch {

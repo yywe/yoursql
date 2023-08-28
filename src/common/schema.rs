@@ -1,11 +1,14 @@
 use anyhow::Context;
 use anyhow::Result;
+use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::ops::Deref;
 use std::sync::Arc;
 use crate::common::types::DataType;
+use super::column::Column;
 use super::table_reference::OwnedTableReference;
+use super::table_reference::TableReference;
 
 #[derive(Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
 pub struct Field {
@@ -99,6 +102,7 @@ impl FromIterator<FieldRef> for Fields {
     }
 }
 
+
 impl Default for Fields {
     fn default() -> Self {
         Self::empty()
@@ -136,11 +140,105 @@ impl Schema {
     pub fn fields(&self) -> &Fields {
         &self.fields
     }
+
+    /// cause we implemented Deref for fields, so we can use &self.fields[i]
+    /// although fields is: Fields(Arc<[FieldRef]>)
+    pub fn field(&self, i: usize) -> &Field {
+        &self.fields[i]
+    }
+
     pub fn project(&self, indices: &[usize]) -> Result<Schema> {
         Ok(Self {
             fields: self.fields.project(indices)?,
             metadata: self.metadata.clone(),
         })
+    }
+    /// given column name (optional table reference), return the index of field in this schema
+    /// one thing to note is that when the table qualifier (either in the input params or in the
+    /// schema fields) is missing, the equal comparison will omit the part 
+    pub fn index_of_column_by_name(&self, qualifier: Option<&TableReference>, name: &str) -> Result<Option<usize>> {
+        let mut matches = self.fields.iter().enumerate().filter(|(_, field)|{
+            match (qualifier, &field.qualifier) {
+                // both the input name and field name are qualified, this requires the field name = name
+                // and the qualifiers are equal, when compare qualifers (relation, if database is absent, ignore)
+                (Some(q), Some(ref field_q))=>{
+                    let q_match = match q {
+                        TableReference::Bare { table } => table == field_q.table_name(), // only compare table name, below is similar
+                        TableReference::Full { database, table } => table == field_q.table_name() && field_q.database_name().map_or(true, |n|n==database)
+                    };
+                    field.name() == name && q_match
+                }
+                // query is qualified, but field is un-qualifed, check if field name has qualifier
+                (Some(q), None) => {
+                    let column = Column::from_qualified_name(field.name());
+                    match column {
+                        Column {
+                            relation: Some(r),
+                            name: column_name,
+                        }=> &r == q && column_name == name,
+                        _=>false,
+                    }
+                }
+                // field to look up is unqualified, ignore qualifier
+                (None, Some(_)) | (None, None) => field.name() == name,
+            }
+        }).map(|(idx,_)|idx);
+        Ok(matches.next())
+    }
+
+    /// get the field in the Schema based on column (optional relation and name)
+    pub fn field_from_column(&self, column: &Column) -> Result<&Field> {
+        match &column.relation {
+            Some(r) => self.field_with_qualified_name(r, &column.name),
+            None=> self.field_with_unqualified_name(&column.name),
+        }
+    }
+
+    /// get the field in the Schema based on qualifier and name
+    pub fn field_with_qualified_name(&self, qualifier: &TableReference, name: &str) -> Result<&Field> {
+        let idx = self.index_of_column_by_name(Some(qualifier), name)?.context(format!("failed to find field using qualifier:{}, name:{}",qualifier.to_string(), name))?;
+        Ok(self.field(idx))
+    }
+
+    /// get all the fields maching the given name
+    pub fn fields_with_unqualified_name(&self, name: &str) -> Vec<&Field> {
+        self.fields.iter().filter(|f|f.name() == name).map(|f|&(**f)).collect()
+    }
+
+    pub fn field_with_unqualified_name(&self, name: &str) -> Result<&Field> {
+        let matches = self.fields_with_unqualified_name(name);
+        match matches.len() {
+            0 => Err(anyhow!(format!("failed to find field using name:{}", name))),
+            1 => Ok(matches[0]),
+            _=> {
+                // when there are multiple matches, see if we have any fields without qualifer
+                // if so, that's it
+                let fields_without_qualifier = matches.iter().filter(|f|f.qualifier.is_none()).collect::<Vec<_>>();
+                if fields_without_qualifier.len() == 1 {
+                    Ok(fields_without_qualifier[0])
+                }else{
+                    Err(anyhow!(format!("found multiple fields using name:{}", name)))
+                }
+
+            }
+        }
+    }
+}
+
+
+/// Given column name, retrieve relevant meta information 
+pub trait ColumnMeta: std::fmt::Debug {
+    fn nullable(&self, col: &Column) -> Result<bool>;
+    fn data_type(&self, col: &Column) -> Result<&DataType>;
+}
+
+impl ColumnMeta for Schema {
+    fn nullable(&self, col: &Column) -> Result<bool>{
+        Ok(self.field_from_column(col)?.is_nullable())
+    }
+
+    fn data_type(&self, col: &Column) -> Result<&DataType>{
+        Ok(self.field_from_column(col)?.data_type())
     }
 }
 
