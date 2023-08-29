@@ -9,6 +9,7 @@ use crate::expr::expr::Expr;
 use anyhow::{anyhow, Result};
 
 use super::type_coercion::get_result_type;
+use crate::expr::utils::agg_cols;
 
 /// we need to be able to compose a schema based on expressions
 /// each time for a plan node, the output is a schema based on expressions
@@ -127,8 +128,15 @@ pub fn exprlist_to_fields<'a>(exprs: impl IntoIterator<Item = &'a Expr>, plan: &
 
 /// given expressions and a aggregate plan, generate the list of fields
 fn expr_list_to_fields_aggregate(exprs: &[Expr], plan: &LogicalPlan, agg: &Aggregate)->Result<Vec<Field>> {
-    
-    return Err(anyhow!(
-        "todo: "
-    ))
+    let agg_cols = agg_cols(agg);
+    let mut fields = vec![];
+    for expr in exprs {
+        match expr {
+            Expr::Column(c) if agg_cols.iter().any(|x| x==c) => {
+                fields.push(expr.to_field(agg.input.output_schema().as_ref())?);
+            },
+            _=>fields.push(expr.to_field(plan.output_schema().as_ref())?),
+        }
+    }
+    Ok(fields)
 }

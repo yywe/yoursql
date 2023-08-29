@@ -2,7 +2,7 @@ use anyhow::Context;
 use anyhow::Result;
 use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap,HashSet};
 use std::ops::Deref;
 use std::sync::Arc;
 use crate::common::types::DataType;
@@ -28,6 +28,9 @@ impl Field {
             metadata: HashMap::default(),
             qualifier: qualifier,
         }
+    }
+    pub fn qualifier(&self) -> Option<&OwnedTableReference> {
+        self.qualifier.as_ref()
     }
     pub fn name(&self) -> &String {
         &self.name
@@ -137,8 +140,35 @@ impl Schema {
             metadata: metadata,
         }
     }
+
+    /// before creating Schema, also check the name, ensure a unique name is not 
+    /// both unqualified and qualified, see impl
+    pub fn new_with_metadata(fields: Vec<Field>, metadata: HashMap<String, String>) -> Result<Self> {
+        let mut qualified_names = HashSet::new();
+        let mut unqualified_names = HashSet::new();
+        for field in &fields {
+            if let Some(qualifier) = field.qualifier() {
+                qualified_names.insert((qualifier, field.name()));
+            }else if unqualified_names.insert(field.name()) {
+                return Err(anyhow!(format!("duplicate unqualified field {}", field.name())))
+            }
+        }
+        let mut qualified_names =  qualified_names.iter().map(|(l, r)|(l.to_owned(), r.to_owned())).collect::<Vec<(&OwnedTableReference, &String)>>();
+        qualified_names.sort();
+        for (qualifer, name) in &qualified_names {
+            if unqualified_names.contains(name) {
+                return Err(anyhow!(format!("ambigious  field: {}, qualifed version:{}", name, qualifer)))
+            }
+        };
+        Ok(Self {fields: fields.into(), metadata:metadata})
+    }
+
     pub fn fields(&self) -> &Fields {
         &self.fields
+    }
+
+    pub fn metadata(&self) -> &HashMap<String, String> {
+        &self.metadata
     }
 
     /// cause we implemented Deref for fields, so we can use &self.fields[i]

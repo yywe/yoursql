@@ -1,5 +1,6 @@
 pub mod builder;
 
+use crate::common::schema::Schema;
 use crate::{
     common::{schema::SchemaRef, table_reference::OwnedTableReference},
     expr::expr::Expr,
@@ -7,6 +8,9 @@ use crate::{
 };
 use anyhow::{anyhow, Result};
 use std::sync::Arc;
+use crate::common::types::DataType;
+
+use super::expr_schema::{exprlist_to_fields, ExprToSchema};
 
 pub enum LogicalPlan {
     Projection(Projection),
@@ -122,7 +126,20 @@ impl Projection {
         })
     }
     pub fn try_new(exprs: Vec<Expr>, input: Arc<LogicalPlan>) -> Result<Self> {
-        //todo: to be continued
-        return Err(anyhow!("not implemented yet"));
+        let schema = Arc::new(Schema::new_with_metadata(exprlist_to_fields(&exprs, &input)?, input.output_schema().metadata().clone())?);
+        Self::try_new_with_schema(exprs, input, schema)
     }
 }
+
+impl Filter {
+    pub fn try_new(predicate: Expr, input: Arc<LogicalPlan>) -> Result<Self> {
+        if let Ok(predicate_type) = predicate.get_type(input.output_schema().as_ref()) {
+            if predicate_type != DataType::Boolean {
+                return Err(anyhow!(format!("cannot create filter with non-boolean type {} ",predicate_type)));
+            }
+        }
+        Ok(Self{predicate, input})
+    }
+}
+
+
