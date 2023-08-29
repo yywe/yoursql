@@ -3,9 +3,11 @@ use crate::common::{
     types::DataType,
 };
 use crate::expr::expr::BinaryExpr;
+use crate::expr::expr::AggregateFunction;
 use crate::expr::logical_plan::LogicalPlan;
 use crate::expr::logical_plan::Aggregate;
 use crate::expr::expr::Expr;
+use crate::expr::expr::AggregateFunctionType;
 use anyhow::{anyhow, Result};
 
 use super::type_coercion::get_result_type;
@@ -46,6 +48,10 @@ impl ExprToSchema for Expr {
             Expr::QualifiedWildcard { .. } => Err(anyhow!(
                 "qualified wildcard should not exist in logical query plan"
             )),
+            Expr::AggregateFunction(AggregateFunction{fun, args,..})=>{
+                let data_types = args.iter().map(|e|e.get_type(schema)).collect::<Result<Vec<_>>>()?;
+                AggregateFunctionType::return_type(fun, &data_types)
+            }
         }
     }
 
@@ -69,6 +75,7 @@ impl ExprToSchema for Expr {
             Expr::QualifiedWildcard { .. } => Err(anyhow!(
                 "qualified wildcard are not valid in logical query plan"
             )),
+            Expr::AggregateFunction{..}=>Ok(true),
             Expr::BinaryExpr(BinaryExpr {
                 ref left,
                 ref right,

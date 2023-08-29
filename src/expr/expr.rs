@@ -1,6 +1,10 @@
 use crate::common::{column::Column, types::DataValue};
 use anyhow::{Result,anyhow};
+use crate::expr_vec_fmt;
+use crate::common::types::DataType;
 
+use super::type_coercion::{coerce_types, NUMERICS};
+use crate::expr::type_coercion::signature;
 #[derive(Debug,Clone)]
 pub enum Expr {
     Alias(Box<Expr>, String),
@@ -17,6 +21,7 @@ pub enum Expr {
     IsNotTrue(Box<Expr>),
     IsNotFalse(Box<Expr>),
     Between(Between),
+    AggregateFunction(AggregateFunction),
     Wildcard,
     QualifiedWildcard {qualifier: String},
 }
@@ -27,6 +32,77 @@ pub struct BinaryExpr {
     pub op: Operator,
     pub right: Box<Expr>,
 }
+
+#[derive(Debug, Clone)]
+pub enum AggregateFunctionType {
+    Count,
+    Sum,
+    Min,
+    Max,
+    Avg,
+}
+
+impl AggregateFunctionType {
+    fn name(&self) -> &str {
+        match self {
+            AggregateFunctionType::Count=>"COUNT",
+            AggregateFunctionType::Sum=>"SUM",
+            AggregateFunctionType::Min=>"MIN",
+            AggregateFunctionType::Max=>"MAX",
+            AggregateFunctionType::Avg=>"AVG",
+        }
+    }
+    pub fn return_type(fun: &AggregateFunctionType, input_exprs: &[DataType])->Result<DataType>{
+        let coerced_data_types = coerce_types(fun, input_exprs, &signature(fun))?;
+        match fun {
+            AggregateFunctionType::Count=>{
+                Ok(DataType::Int64)
+            }
+            AggregateFunctionType::Max | AggregateFunctionType::Min => {
+                Ok(coerced_data_types[0].clone())
+            }
+            AggregateFunctionType::Sum => {
+                match &coerced_data_types[0] {
+                    DataType::Int8 | DataType::Int16 | DataType::Int32 | DataType::Int64 =>{
+                        Ok(DataType::Int64)
+                    }
+                    DataType::UInt8 | DataType::UInt16 | DataType::UInt32 | DataType::UInt64 =>{
+                        Ok(DataType::UInt64)
+                    }
+                    DataType::Float32 | DataType::Float64 =>{
+                        Ok(DataType::Float64)
+                    }
+                    other=>{
+                        Err(anyhow!(format!("sum does not support type {other:?}")))
+                    }
+                }
+            }
+            AggregateFunctionType::Avg =>{
+                match &coerced_data_types[0] {
+                    _arg_type if NUMERICS.contains(&coerced_data_types[0]) => {
+                        Ok(DataType::Float64)
+                    }
+                    other => Err(anyhow!(format!("avg does not support type {other:?}")))
+                }
+            }
+        }
+    }
+}
+
+impl std::fmt::Display for AggregateFunctionType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.name())
+    }
+}
+#[derive(Debug, Clone)]
+pub struct AggregateFunction {
+    pub fun: AggregateFunctionType,
+    pub args: Vec<Expr>,
+    pub distinct: bool,
+    pub filter: Option<Box<Expr>>,
+    pub order_by: Option<Vec<Expr>>,
+}
+
 
 impl std::fmt::Display for BinaryExpr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -188,6 +264,16 @@ fn create_name(e: &Expr) -> Result<String> {
             }else{
                 Ok(format!("{expr} BETWEEN {low} and {high}"))
             }
+        },
+        Expr::AggregateFunction(AggregateFunction{fun, distinct, args, filter, order_by})=>{
+            let mut name = create_function_name(&fun.to_string(), *distinct, args)?;
+            if let Some(fe) = filter {
+                name = format!("{name} FILTER (WHERE {fe})");
+            };
+            if let Some(order_by) = order_by {
+                name= format!("{name} ORDER BY [{}]", expr_vec_fmt!(order_by));
+            };
+            Ok(name)
         }
     }
 }
@@ -236,8 +322,47 @@ impl std::fmt::Display for Expr {
                 }
             }
             Expr::Wildcard => write!(f, "*"),
-            Expr::QualifiedWildcard { qualifier }=>write!(f, "{qualifier}.*")
+            Expr::QualifiedWildcard { qualifier }=>write!(f, "{qualifier}.*"),
+            Expr::AggregateFunction(AggregateFunction{fun, distinct, ref args, filter, order_by,..})=>{
+                fmt_function(f, &fun.to_string(), *distinct, args, true);
+                if let Some(fe) = filter {
+                    write!(f, " FILTER (WHERE {fe}")?;
+                }
+
+                if let Some(ob) = order_by {
+                    write!(f, " ORDER BY [{}]", expr_vec_fmt!(ob))?;
+                }
+                Ok(())
+            }
         }
     }
 }
 
+
+fn fmt_function(f: &mut std::fmt::Formatter, func: &str, distinct: bool, args: &[Expr], display: bool) -> std::fmt::Result {
+    let args: Vec<String> = match display {
+        true => args.iter().map(|arg| format!("{arg}")).collect(),
+        false => args.iter().map(|arg| format!("{arg:?}")).collect(),
+    };
+    let distinct_str = match distinct {
+        true => "DISTINCT",
+        false => "",
+    };
+    write!(f, "{}({}{})", func, distinct_str, args.join(", "))
+}
+
+#[macro_export]
+macro_rules! expr_vec_fmt {
+    ($ARRAY: expr) => {
+        $ARRAY.iter().map(|e|format!("{e}")).collect::<Vec<String>>().join(", ")
+    };
+}
+
+fn create_function_name(fun: &str, distinct: bool, args: &[Expr]) -> Result<String> {
+    let names: Vec<String> = args.iter().map(create_name).collect::<Result<_>>()?;
+    let distinct_str = match distinct {
+        true => "DISTINCT",
+        false=>"",
+    };
+    Ok(format!("{}({}{})", fun, distinct_str, names.join(",")))
+}

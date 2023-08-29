@@ -3,6 +3,7 @@ use crate::common::tree_node::VisitRecursion;
 use crate::expr::expr::Expr;
 use crate::expr::expr::{Between, BinaryExpr, Like};
 use anyhow::Result;
+use crate::expr::expr::AggregateFunction;
 
 impl TreeNode for Expr {
     fn apply_children<F>(&self, op: &mut F) -> Result<VisitRecursion>
@@ -37,6 +38,16 @@ impl TreeNode for Expr {
             ],
             Expr::BinaryExpr(BinaryExpr { left, right, .. }) => {
                 vec![left.as_ref().clone(), right.as_ref().clone()]
+            },
+            Expr::AggregateFunction(AggregateFunction{args,filter, order_by,..}) => {
+                let mut expr_vec = args.clone();
+                if let Some(f) = filter {
+                    expr_vec.push(f.as_ref().clone());
+                }
+                if let Some(o) = order_by {
+                    expr_vec.extend(o.clone())
+                }
+                expr_vec
             }
         };
 
