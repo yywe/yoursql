@@ -1,9 +1,11 @@
 use crate::common::tree_node::TreeNode;
 use crate::common::tree_node::VisitRecursion;
 use crate::expr::expr::Expr;
-use crate::expr::expr::{Between, BinaryExpr, Like};
+use crate::expr::expr::{Between, BinaryExpr, Like, Sort};
 use anyhow::Result;
 use crate::expr::expr::AggregateFunction;
+
+use super::logical_plan::LogicalPlan;
 
 impl TreeNode for Expr {
     fn apply_children<F>(&self, op: &mut F) -> Result<VisitRecursion>
@@ -18,6 +20,7 @@ impl TreeNode for Expr {
             | Expr::IsTrue(expr)
             | Expr::IsNotTrue(expr)
             | Expr::IsFalse(expr)
+            | Expr::Sort(Sort{expr,..})
             | Expr::IsNotFalse(expr) => vec![expr.as_ref().clone()],
 
             Expr::Column(_)
@@ -59,5 +62,45 @@ impl TreeNode for Expr {
             }
         }
         Ok(VisitRecursion::Continue)
+    }
+}
+
+
+impl TreeNode for LogicalPlan {
+    fn apply_children<F>(&self, op: &mut F) -> Result<VisitRecursion> 
+        where  F: FnMut(&Self) -> Result<VisitRecursion> {
+        for child in self.inputs() {
+            match op(child)? {
+                VisitRecursion::Continue=>{},
+                VisitRecursion::Skip => return Ok(VisitRecursion::Continue),
+                VisitRecursion::Stop => return Ok(VisitRecursion::Stop),
+            }
+        }
+        Ok(VisitRecursion::Continue)
+    }
+
+    /// actually since for now we did not support subquery, can use default impl. no need here. same next for visit
+    fn apply<F>(&self, op: &mut F) -> Result<VisitRecursion>
+        where F: FnMut(&Self) -> Result<VisitRecursion> {
+        match op(self)? {
+            VisitRecursion::Continue=>{},
+            VisitRecursion::Skip => return Ok(VisitRecursion::Continue),
+            VisitRecursion::Stop => return Ok(VisitRecursion::Stop),
+        };
+        self.apply_children(&mut |node| node.apply(op))
+    }
+
+    fn visit<V: crate::common::tree_node::TreeNodeVisitor<N = Self>>(&self, visitor: &mut V) -> Result<VisitRecursion> {
+        match visitor.pre_visit(self)?{
+            VisitRecursion::Continue=>{},
+            VisitRecursion::Skip => return Ok(VisitRecursion::Continue),
+            VisitRecursion::Stop => return Ok(VisitRecursion::Stop),
+        }
+        match self.apply_children(&mut |node| node.visit(visitor))?{
+            VisitRecursion::Continue=>{},
+            VisitRecursion::Skip => return Ok(VisitRecursion::Continue),
+            VisitRecursion::Stop => return Ok(VisitRecursion::Stop),
+        }
+        visitor.post_visit(self)
     }
 }

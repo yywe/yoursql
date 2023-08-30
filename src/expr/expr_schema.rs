@@ -6,7 +6,7 @@ use crate::expr::expr::BinaryExpr;
 use crate::expr::expr::AggregateFunction;
 use crate::expr::logical_plan::LogicalPlan;
 use crate::expr::logical_plan::Aggregate;
-use crate::expr::expr::Expr;
+use crate::expr::expr::{Expr,Sort};
 use crate::expr::expr::AggregateFunctionType;
 use anyhow::{anyhow, Result};
 
@@ -45,6 +45,7 @@ impl ExprToSchema for Expr {
                 ref op,
             }) => get_result_type(&left.get_type(schema)?, op, &right.get_type(schema)?),
             Expr::Wildcard => Ok(DataType::Null),
+            Expr::Sort(Sort{expr,..})=>expr.get_type(schema),
             Expr::QualifiedWildcard { .. } => Err(anyhow!(
                 "qualified wildcard should not exist in logical query plan"
             )),
@@ -59,7 +60,7 @@ impl ExprToSchema for Expr {
         use crate::expr::expr::Between;
         use crate::expr::expr::Like;
         match self {
-            Expr::Alias(expr, _) | Expr::Not(expr) => expr.nullable(schema),
+            Expr::Alias(expr, _) | Expr::Not(expr) | Expr::Sort(Sort{expr,..}) => expr.nullable(schema),
             Expr::Column(c) => schema.nullable(c),
             Expr::Literal(value) => Ok(value.is_null()),
             Expr::IsNull(_)

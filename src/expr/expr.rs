@@ -21,6 +21,7 @@ pub enum Expr {
     IsNotTrue(Box<Expr>),
     IsNotFalse(Box<Expr>),
     Between(Between),
+    Sort(Sort),
     AggregateFunction(AggregateFunction),
     Wildcard,
     QualifiedWildcard {qualifier: String},
@@ -41,6 +42,14 @@ pub enum AggregateFunctionType {
     Max,
     Avg,
 }
+
+#[derive(Debug, Clone)]
+pub struct Sort {
+    pub expr: Box<Expr>,
+    pub asc: bool, 
+    pub nulls_first: bool,
+}
+
 
 impl AggregateFunctionType {
     fn name(&self) -> &str {
@@ -274,6 +283,9 @@ fn create_name(e: &Expr) -> Result<String> {
                 name= format!("{name} ORDER BY [{}]", expr_vec_fmt!(order_by));
             };
             Ok(name)
+        },
+        Expr::Sort{..} => {
+            Err(anyhow!("create name does not support sort expression"))
         }
     }
 }
@@ -333,6 +345,18 @@ impl std::fmt::Display for Expr {
                     write!(f, " ORDER BY [{}]", expr_vec_fmt!(ob))?;
                 }
                 Ok(())
+            },
+            Expr::Sort(Sort { expr, asc, nulls_first })=>{
+                if *asc {
+                    write!(f, "{expr} ASC")?;
+                }else{
+                    write!(f, "{expr} DESC")?;
+                }
+                if *nulls_first {
+                    write!(f, " NULLS FIRST")
+                }else{
+                    write!(f, " NULLS LAST")
+                }
             }
         }
     }
