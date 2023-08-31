@@ -32,6 +32,9 @@ pub enum DataValue {
     Time64Nanosecond(Option<i64>),
 }
 
+/// note Eq cannot be derived due to f32, f64, only PartialEq can
+impl Eq for DataValue{}
+
 macro_rules! format_option {
     ($F: expr, $EXPR: expr) => {
         match $EXPR {
@@ -144,7 +147,7 @@ impl std::fmt::Display for DataValue {
 
 
 
-#[derive(Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, Eq, PartialEq, Hash)]
 pub enum DataType {
     Null,
     Boolean,
@@ -224,5 +227,55 @@ impl DataValue {
 impl std::fmt::Display for DataType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{self:?}")
+    }
+}
+
+
+/// wrapper to hash f32, f64
+/// in rust, you cannot impl foreign trait for foreign type
+/// need to use own type. the hash for f32 and f64 is to recognize
+/// its binary represenation, i.e, build u32 from f32 bits, that is used
+/// as its hash
+struct Fl<T>(T);
+macro_rules! hash_float_value {
+    ($(($t:ty, $i:ty)),+) => {
+        $(
+            impl std::hash::Hash for Fl<$t> {
+                #[inline]
+                fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+                    state.write(&<$i>::from_ne_bytes(self.0.to_ne_bytes()).to_ne_bytes())
+                }
+            }
+        )+
+    };
+}
+
+hash_float_value!((f64, u64), (f32, u32));
+
+impl std::hash::Hash for DataValue{
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        use DataValue::*;
+        match self {
+            Null=>1.hash(state),
+            Boolean(v)=>v.hash(state),
+            Float32(v)=>v.map(Fl).hash(state),
+            Float64(v)=>v.map(Fl).hash(state),
+            Int8(v) => v.hash(state),
+            Int16(v) => v.hash(state),
+            Int32(v) => v.hash(state),
+            Int64(v) => v.hash(state),
+            UInt8(v) => v.hash(state),
+            UInt16(v) => v.hash(state),
+            UInt32(v) => v.hash(state),
+            UInt64(v) => v.hash(state),
+            Utf8(v)=>v.hash(state),
+            Date32(v)=>v.hash(state),
+            Date64(v)=>v.hash(state),
+            Binary(v)=>v.hash(state),
+            Time32Millisecond(v)=>v.hash(state),
+            Time32Second(v)=>v.hash(state),
+            Time64Microsecond(v)=>v.hash(state),
+            Time64Nanosecond(v)=>v.hash(state),
+        }
     }
 }

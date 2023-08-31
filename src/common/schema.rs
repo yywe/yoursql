@@ -9,7 +9,7 @@ use crate::common::types::DataType;
 use super::column::Column;
 use super::table_reference::OwnedTableReference;
 use super::table_reference::TableReference;
-
+use std::hash::Hash;
 #[derive(Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
 pub struct Field {
     name: String,
@@ -43,11 +43,23 @@ impl Field {
     pub fn is_nullable(&self) -> bool {
         self.nullable
     }
+
+    /// based on the field definition, conver it to a Expr::Column
+    pub fn qualified_column(&self) -> Column {
+        Column {
+            relation: self.qualifier.clone(),
+            name: self.name.to_string(),
+        }
+    }
+    pub fn with_nullable(mut self, nullable: bool) -> Self {
+        self.nullable = nullable;
+        self
+    }
 }
 
 pub type FieldRef = Arc<Field>;
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct Fields(Arc<[FieldRef]>);
 
 impl Fields {
@@ -80,6 +92,9 @@ impl Fields {
                 .iter()
                 .zip(other.iter())
                 .all(|(a, b)| Arc::ptr_eq(a, b) || *(*a) == *(*b))
+    }
+    pub fn to_field_vec(&self) -> Vec<&Field> {
+        self.0.iter().map(|e|&(**e)).collect()
     }
 }
 
@@ -119,7 +134,7 @@ impl Deref for Fields {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct Schema {
     pub fields: Fields,
     pub metadata: HashMap<String, String>,
@@ -253,8 +268,33 @@ impl Schema {
             }
         }
     }
+
+    pub fn fields_with_qualifed(&self, qualifier: &TableReference) -> Vec<&Field> {
+        self.fields.iter().filter(|field|field.qualifier().map(|q|q.eq(qualifier)).unwrap_or(false)).map(|e|&(**e)).collect()
+    }
+
 }
 
+impl Hash for Field {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.name.hash(state);
+        self.data_type.hash(state);
+        self.nullable.hash(state);
+        let mut keys: Vec<&String> = self.metadata.keys().collect();
+        keys.sort();
+        for k in keys {
+            k.hash(state);
+            self.metadata.get(k).expect("key valid").hash(state);
+        }
+    }
+}
+
+impl Hash for Schema {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.fields.hash(state);
+        self.metadata.len().hash(state);
+    }
+}
 
 /// Given column name, retrieve relevant meta information 
 pub trait ColumnMeta: std::fmt::Debug {
