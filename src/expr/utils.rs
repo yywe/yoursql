@@ -12,6 +12,7 @@ use std::sync::Arc;
 use crate::common::tree_node::RewriteRecursion;
 use crate::expr::expr::{BinaryExpr, Operator};
 
+use super::expr::{AggregateFunction, AggregateFunctionType};
 use super::logical_plan::builder::build_join_schema;
 
 
@@ -198,4 +199,25 @@ pub fn columnize_expr(e: Expr, input_schema: &Schema) -> Expr {
             Err(_)=>e,
         }
     }
+}
+
+pub fn col(ident: impl Into<Column>) -> Expr {
+    Expr::Column(ident.into())
+}
+
+pub fn min(expr: Expr) -> Expr {
+    Expr::AggregateFunction(AggregateFunction{fun: AggregateFunctionType::Min, args: vec![expr], distinct: false, filter: None, order_by: None }
+    )
+}
+
+pub fn extract_columns_from_expr(expr: &Expr, acc: &mut HashSet<Column>) -> Result<()>{
+    inspect_expr_pre(expr, |expr|{
+        match expr {
+            Expr::Column(c)=>{
+                acc.insert(c.clone());
+            }
+            _=>{}
+        }
+        Ok(())
+    })
 }

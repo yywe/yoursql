@@ -1,21 +1,21 @@
 use crate::common::schema::SchemaRef;
 use crate::common::table_reference::OwnedTableReference;
+use crate::expr::expr_rewriter::{normalize_col, normalize_cols, rewrite_sort_cols_by_aggs};
 use crate::expr::utils::columnize_expr;
 use crate::expr::utils::expand_qualified_wildcard;
 use crate::expr::utils::expand_wildcard;
-use crate::expr::expr_rewriter::normalize_col;
 use crate::storage::Table;
 
 use super::LogicalPlan;
-use crate::expr::logical_plan::EmptyRelation;
 use crate::common::column::Column;
-use crate::expr::logical_plan::Expr;
-use crate::expr::logical_plan::{JoinType,Schema};
-use crate::expr::logical_plan::{TableScan,Projection};
-use anyhow::{anyhow, Result};
-use std::sync::Arc;
 use crate::common::schema::Field;
+use crate::expr::logical_plan::EmptyRelation;
+use crate::expr::logical_plan::Expr;
+use crate::expr::logical_plan::{Aggregate, Filter, Projection, TableScan};
+use crate::expr::logical_plan::{JoinType, Schema};
+use anyhow::{anyhow, Result};
 use std::collections::HashMap;
+use std::sync::Arc;
 
 pub struct LogicalPlanBuilder {
     plan: LogicalPlan,
@@ -52,6 +52,7 @@ impl LogicalPlanBuilder {
             return Err(anyhow!("table name cannot be empty"));
         }
         let schema = table_source.get_table();
+        // in case projection is none, default will copy the fields and set qualifier
         let projected_schema = projection
             .as_ref()
             .map(|p| {
@@ -60,7 +61,7 @@ impl LogicalPlanBuilder {
                     schema.metadata().clone(),
                 )
             })
-            .unwrap_or_else(|| Err(anyhow!("failed to project schema")))?;
+            .unwrap_or_else(|| Schema::try_from_qualified_schema(table_name.clone(), &schema))?;
         let table_scan = LogicalPlan::TableScan(TableScan {
             table_name,
             source: table_source,
@@ -72,14 +73,18 @@ impl LogicalPlanBuilder {
         Ok(Self::from(table_scan))
     }
 
-    pub fn scan(table_name: impl Into<OwnedTableReference>, table_source: Arc<dyn Table>, projection: Option<Vec<usize>>)->Result<Self> {
+    pub fn scan(
+        table_name: impl Into<OwnedTableReference>,
+        table_source: Arc<dyn Table>,
+        projection: Option<Vec<usize>>,
+    ) -> Result<Self> {
         Self::scan_with_filters(table_name, table_source, projection, vec![])
     }
 
     pub fn normalize(plan: &LogicalPlan, column: impl Into<Column> + Clone) -> Result<Column> {
         let schema = plan.output_schema();
         let fallback_schemas = plan.fallback_normalize_schemas();
-        let fallback_schemas_ref:Vec<&Schema> = fallback_schemas.iter().collect();
+        let fallback_schemas_ref: Vec<&Schema> = fallback_schemas.iter().collect();
         let using_columns = plan.using_columns()?;
         column.into().normalize_with_schemas_and_ambiguity_check(
             &[&[schema.as_ref()], &fallback_schemas_ref],
@@ -87,57 +92,213 @@ impl LogicalPlanBuilder {
         )
     }
 
-    pub fn project(self,expr: impl IntoIterator<Item = impl Into<Expr>>) -> Result<Self> {
+    pub fn project(self, expr: impl IntoIterator<Item = impl Into<Expr>>) -> Result<Self> {
         Ok(Self::from(project(self.plan, expr)?))
+    }
+
+    pub fn filter(self, expr: impl Into<Expr>) -> Result<Self> {
+        let expr = normalize_col(expr.into(), &self.plan)?;
+        Ok(Self::from(LogicalPlan::Filter(Filter::try_new(
+            expr,
+            Arc::new(self.plan),
+        )?)))
+    }
+
+    pub fn limit(self, skip: usize, fetch: Option<usize>) -> Result<Self> {
+        Ok(Self::from(LogicalPlan::Limit(super::Limit {
+            skip,
+            fetch,
+            input: Arc::new(self.plan),
+        })))
+    }
+
+    pub fn aggregate(
+        self,
+        group_expr: impl IntoIterator<Item = impl Into<Expr>>,
+        aggr_expr: impl IntoIterator<Item = impl Into<Expr>>,
+    ) -> Result<Self> {
+        let group_expr = normalize_cols(group_expr, &self.plan)?;
+        let aggr_expr = normalize_cols(aggr_expr, &self.plan)?;
+        Ok(Self::from(LogicalPlan::Aggregate(Aggregate::try_new(
+            Arc::new(self.plan),
+            group_expr,
+            aggr_expr,
+        )?)))
+    }
+
+    /// apply sort plan given the input, first check and insert missing columns, then do a projection
+    /// if missing columns are added. when adding missing, will recursively add for all downstream plans
+    ///
+    /// another thing, if the sort op has aggregation, it needs to use the aggregation output. at the time
+    /// of sort, the aggregation should have already by done. so just needs a rewrite, i.e. rewrite
+    /// the aggregation expression using the output of the aggregation node name
+
+    /// in the case of toydb, this is done by insert separate placeholder columns 1st for aggregation
+    /// result, then all the other operation is based on the result column
+    /// the aggregation is done at logical plan level, not expression level.
+    ///
+    ///
+    /// while here, aggregation is part of expression (also order by is expression)
+
+    pub fn sort(self, exprs: impl IntoIterator<Item = impl Into<Expr>> + Clone) -> Result<Self> {
+        let exprs = rewrite_sort_cols_by_aggs(exprs, &self.plan)?;
+        let schema = self.plan.output_schema();
+        let mut missing_cols: Vec<Column> = vec![];
+        exprs.clone().into_iter().try_for_each::<_,Result<()>>(|expr|{
+            // first get all the used columns in the expr
+            let columns = expr.used_columns()?;
+            
+            // check if the input schema has the column (field), if not, add to missing
+            columns.into_iter().for_each(|c|{
+                if schema.field_from_column(&c).is_err() {
+                    missing_cols.push(c)
+                }
+            });
+            Ok(())
+        })?;
+
+        if missing_cols.is_empty() {
+            return Ok(Self::from(LogicalPlan::Sort(super::Sort { expr: normalize_cols(exprs, &self.plan)?, input: Arc::new(self.plan), fetch: None })));
+        }
+
+        // the strategy is, we will first add the missing columns to the current logical plan
+        // and then do a projection to recover the original projection structure
+        // thus, we need to new projections based on the output of sorted plan
+        // so the new projection will diretly refer the column name
+
+        // it is just the column names based on original schema
+        let new_exprs = schema.fields().iter().map(|f|Expr::Column(f.qualified_column())).collect();
+
+        // first do a sort plan
+        let plan = Self::add_missing_columns(self.plan, &missing_cols)?;
+        let plan_sorted = LogicalPlan::Sort(super::Sort { expr: normalize_cols(exprs,&plan)?, input: Arc::new(plan), fetch: None });
+
+        // now do a projection
+        Ok(Self::from(LogicalPlan::Projection(Projection::try_new(
+            new_exprs,
+            Arc::new(plan_sorted),
+        )?)))
+    }
+
+    /// add missing sort columns to all downstream projection (recursively call itself)
+    /// very smart recursive implementation
+    fn add_missing_columns(curr_plan: LogicalPlan, missing_cols: &[Column]) -> Result<LogicalPlan> {
+        match curr_plan {
+            LogicalPlan::Projection(Projection {
+                input,
+                mut exprs,
+                schema: _,
+            }) if missing_cols
+                .iter()
+                .all(|c| input.output_schema().has_column(c)) =>
+            {
+                // note above condition, this is a recursion break out case, where
+                // we find a projection node, whose input schema (input plan's output) has
+                // all the missing columns, so we add it from here (this projection)
+                let mut missing_exprs = missing_cols
+                    .iter()
+                    .map(|c| normalize_col(Expr::Column(c.clone()), &input))
+                    .collect::<Result<Vec<_>>>()?;
+                // deduplication
+                missing_exprs.retain(|e| !exprs.contains(e));
+                exprs.extend(missing_exprs);
+                Ok(project((*input).clone(), exprs)?) // return a projection which has all missing columns
+            }
+
+            _ => {
+                // recursion case, either not projection, or the projection does not have all missing columns
+                // continue look in bottom layers recursively
+
+                // first process all child plan nodes (i.e, add missing columns for them)
+                let new_inputs = curr_plan
+                    .inputs()
+                    .into_iter()
+                    .map(|p| Self::add_missing_columns((*p).clone(), missing_cols))
+                    .collect::<Result<Vec<_>>>()?;
+                // all children has been updated, now update current project node itself
+                curr_plan.with_new_inputs(&new_inputs)
+            }
+        }
     }
 }
 
-
-pub fn project(plan: LogicalPlan, expr: impl IntoIterator<Item = impl Into<Expr>>) -> Result<LogicalPlan> {
+pub fn project(
+    plan: LogicalPlan,
+    expr: impl IntoIterator<Item = impl Into<Expr>>,
+) -> Result<LogicalPlan> {
     let input_schema = plan.output_schema();
     let mut projected_expr = vec![];
     for e in expr {
         let e = e.into();
         match e {
-            Expr::Wildcard => {
-                projected_expr.extend(expand_wildcard(&input_schema, &plan)?)
-            }
+            Expr::Wildcard => projected_expr.extend(expand_wildcard(&input_schema, &plan)?),
             Expr::QualifiedWildcard { ref qualifier } => {
                 projected_expr.extend(expand_qualified_wildcard(qualifier, &input_schema)?)
             }
-            _=>projected_expr.push(columnize_expr(normalize_col(e, &plan)?, input_schema.as_ref()))
+            _ => projected_expr.push(columnize_expr(
+                normalize_col(e, &plan)?,
+                input_schema.as_ref(),
+            )),
         }
     }
     validate_unique_names("Projections", projected_expr.iter())?;
-    Ok(LogicalPlan::Projection(Projection::try_new_with_schema(projected_expr, Arc::new(plan.clone()), input_schema)?))
+    Ok(LogicalPlan::Projection(Projection::try_new_with_schema(
+        projected_expr,
+        Arc::new(plan.clone()),
+        input_schema,
+    )?))
 }
 
 pub fn build_join_schema(left: &Schema, right: &Schema, join_type: &JoinType) -> Result<Schema> {
-    fn nullify_fields(fields: &[Field])->Vec<Field> {
-        fields.iter().map(|f|f.clone().with_nullable(true)).collect()
+    fn nullify_fields(fields: &[Field]) -> Vec<Field> {
+        fields
+            .iter()
+            .map(|f| f.clone().with_nullable(true))
+            .collect()
     }
-    let right_fields = right.fields().to_field_vec().iter().map(|&e|e.clone()).collect::<Vec<_>>();
-    let left_fields = left.fields().to_field_vec().iter().map(|&e|e.clone()).collect::<Vec<_>>();
+    let right_fields = right
+        .fields()
+        .to_field_vec()
+        .iter()
+        .map(|&e| e.clone())
+        .collect::<Vec<_>>();
+    let left_fields = left
+        .fields()
+        .to_field_vec()
+        .iter()
+        .map(|&e| e.clone())
+        .collect::<Vec<_>>();
     let fields: Vec<Field> = match join_type {
-        JoinType::Inner => {
-            left_fields.iter().chain(right_fields.iter()).cloned().collect()
-        }
-        JoinType::Left=>{
-            left_fields.iter().chain(&nullify_fields(&right_fields)).cloned().collect()
-        }
-        JoinType::Right=>{
-            nullify_fields(&left_fields).iter().chain(right_fields.iter()).cloned().collect()
-        }
-        JoinType::Full => {
-            nullify_fields(&left_fields).iter().chain(&nullify_fields(&right_fields)).cloned().collect()
-        }
+        JoinType::Inner => left_fields
+            .iter()
+            .chain(right_fields.iter())
+            .cloned()
+            .collect(),
+        JoinType::Left => left_fields
+            .iter()
+            .chain(&nullify_fields(&right_fields))
+            .cloned()
+            .collect(),
+        JoinType::Right => nullify_fields(&left_fields)
+            .iter()
+            .chain(right_fields.iter())
+            .cloned()
+            .collect(),
+        JoinType::Full => nullify_fields(&left_fields)
+            .iter()
+            .chain(&nullify_fields(&right_fields))
+            .cloned()
+            .collect(),
     };
     let mut metadata = left.metadata().clone();
     metadata.extend(right.metadata().clone());
-    Schema::new_with_metadata(fields, metadata) 
+    Schema::new_with_metadata(fields, metadata)
 }
 
-pub fn validate_unique_names<'a>(node_name: &str, expressions: impl IntoIterator<Item = &'a Expr>)->Result<()> {
+pub fn validate_unique_names<'a>(
+    node_name: &str,
+    expressions: impl IntoIterator<Item = &'a Expr>,
+) -> Result<()> {
     let mut unique_names = HashMap::new();
     expressions.into_iter().enumerate().try_for_each(|(position, expr)|{
         let name = expr.display_name()?;

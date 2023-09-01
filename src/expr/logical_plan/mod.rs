@@ -15,6 +15,7 @@ use anyhow::{anyhow, Result};
 use std::collections::HashSet;
 use std::hash::Hash;
 use std::sync::Arc;
+use std::fmt::Display;
 
 use super::expr_schema::{exprlist_to_fields, ExprToSchema};
 use crate::expr_vec_fmt;
@@ -298,7 +299,7 @@ impl LogicalPlan {
         struct Wrapper<'a>(&'a LogicalPlan);
         impl<'a> std::fmt::Display for Wrapper<'a> {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                let with_schema = false;
+                let with_schema = true; // will output schema structure
                 let mut visitor = IndentVisitor::new(f, with_schema);
                 match self.0.visit(&mut visitor) {
                     Ok(_) => Ok(()),
@@ -464,8 +465,9 @@ impl Aggregate {
         aggr_expr: Vec<Expr>,
     ) -> Result<Self> {
         let all_exprs = group_expr.iter().chain(aggr_expr.iter());
+        let ans_fields = exprlist_to_fields(all_exprs, &input)?;
         let schema = Schema::new_with_metadata(
-            exprlist_to_fields(all_exprs, &input)?,
+            ans_fields,
             input.output_schema().metadata().clone(),
         )?;
         Self::try_new_with_schema(input, group_expr, aggr_expr, Arc::new(schema))
@@ -523,9 +525,11 @@ pub fn display_schema(schema: &Schema) -> impl std::fmt::Display + '_ {
                     write!(f, ", ")?;
                 }
                 let nullable_str = if field.is_nullable() { ";N" } else { "" };
+                let qualifier_str = if let Some(q) = field.qualifier() {q.to_string()+"."} else {"".to_string()};
                 write!(
                     f,
-                    "{}:{:?}{}",
+                    "{}{}:{:?}{}",
+                    qualifier_str,
                     field.name(),
                     field.data_type(),
                     nullable_str
@@ -535,4 +539,11 @@ pub fn display_schema(schema: &Schema) -> impl std::fmt::Display + '_ {
         }
     }
     Wrapper(schema)
+}
+
+
+impl std::fmt::Debug for LogicalPlan {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.display_indent().fmt(f)
+    }
 }

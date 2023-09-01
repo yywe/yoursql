@@ -2,7 +2,9 @@ use crate::common::types::DataType;
 use crate::common::{column::Column, types::DataValue};
 use crate::expr_vec_fmt;
 use anyhow::{anyhow, Result};
+use std::collections::HashSet;
 
+use crate::expr::utils::extract_columns_from_expr;
 use super::type_coercion::{coerce_types, NUMERICS};
 use crate::expr::type_coercion::signature;
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -38,6 +40,10 @@ impl BinaryExpr {
     pub fn new(left: Box<Expr>, op: Operator, right: Box<Expr>) -> Self {
         Self { left, op, right }
     }
+}
+
+pub fn binary_expr(left: Expr, op: Operator, right: Expr) -> Expr {
+    Expr::BinaryExpr(BinaryExpr::new(Box::new(left), op, Box::new(right)))
 }
 
 #[derive(Debug, Clone, Hash, Eq, PartialEq)]
@@ -192,6 +198,21 @@ impl Operator {
     }
 }
 
+impl std::ops::Add for Expr {
+    type Output = Self;
+    fn add(self, rhs: Self) -> Self::Output {
+        binary_expr(self, Operator::Plus, rhs)
+    }
+}
+
+impl std::ops::Sub for Expr {
+    type Output = Self;
+    fn sub(self, rhs: Self) -> Self::Output {
+        binary_expr(self, Operator::Minus, rhs)
+    }
+}
+
+
 impl std::fmt::Display for Operator {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let display = match &self {
@@ -249,6 +270,16 @@ impl Expr {
             Expr::Alias(expr, _) => expr.as_ref().clone(),
             _ => self,
         }
+    }
+    pub fn sort(self, asc: bool, nulls_first: bool) -> Expr {
+        Expr::Sort(Sort { expr: Box::new(self), asc: asc, nulls_first: nulls_first })
+    }
+
+    /// get all columns that are used in this expr
+    pub fn used_columns(&self) -> Result<HashSet<Column>> {
+        let mut used_columns = HashSet::new();
+        extract_columns_from_expr(self, &mut used_columns)?;
+        Ok(used_columns)
     }
 }
 

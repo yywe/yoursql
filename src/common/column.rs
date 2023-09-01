@@ -1,6 +1,6 @@
 use super::{table_reference::OwnedTableReference, utils::parse_identifiers_normalized};
 use crate::common::schema::Schema;
-use std::collections::HashSet;
+use std::{collections::HashSet};
 use anyhow::{Result,anyhow};
 
 #[derive(Debug, Clone,Hash, Eq, Ord,PartialOrd, PartialEq)]
@@ -64,5 +64,22 @@ impl Column {
 impl std::fmt::Display for Column {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.flat_name())
+    }
+}
+
+impl From<String> for Column {
+    fn from(c: String) -> Self {
+        Self::from_qualified_name(c)
+    }
+}
+impl From<&String> for Column {
+    fn from(c: &String) -> Self {
+        Self::from_qualified_name(c)
+    }
+}
+
+impl From<&str> for Column {
+    fn from(c: &str) -> Self {
+        Self::from_qualified_name(c)
     }
 }

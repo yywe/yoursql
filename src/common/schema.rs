@@ -55,6 +55,14 @@ impl Field {
         self.nullable = nullable;
         self
     }
+
+    pub fn qualified_name(&self) -> String {
+        if let Some(qualifier) = &self.qualifier {
+            format!("{}.{}", qualifier, self.name())
+        }else{
+            self.name().to_owned()
+        }
+    }
 }
 
 pub type FieldRef = Arc<Field>;
@@ -164,7 +172,7 @@ impl Schema {
         for field in &fields {
             if let Some(qualifier) = field.qualifier() {
                 qualified_names.insert((qualifier, field.name()));
-            }else if unqualified_names.insert(field.name()) {
+            }else if !unqualified_names.insert(field.name()) {
                 return Err(anyhow!(format!("duplicate unqualified field {}", field.name())))
             }
         }
@@ -273,6 +281,30 @@ impl Schema {
         self.fields.iter().filter(|field|field.qualifier().map(|q|q.eq(qualifier)).unwrap_or(false)).map(|e|&(**e)).collect()
     }
 
+    pub fn try_from_qualified_schema<'a>(qualifier: impl Into<TableReference<'a>>, schema: &Schema) -> Result<Self> {
+        let qualifier = qualifier.into();
+        Self::new_with_metadata(schema.fields().iter().map(|f|{
+            let mut field = f.as_ref().clone();
+            field.qualifier = Some(qualifier.clone().to_owned_reference());
+            field
+        }).collect(), schema.metadata().clone())
+    }
+
+    pub fn has_column(&self, column: &Column) -> bool {
+        match &column.relation {
+            Some(r) => self.has_column_with_qualifed_name(r, &column.name),
+            None=>self.has_column_with_unqualified_name(&column.name),
+        }
+    }
+    pub fn has_column_with_unqualified_name(&self, name: &str) -> bool {
+        self.fields().iter().any(|f|f.name() == name)
+    }
+    pub fn has_column_with_qualifed_name(&self, qualifier: &TableReference, name: &str)->bool {
+        self.fields().iter().any(|f|{
+            f.qualifier().map(|q|q.eq(qualifier)).unwrap_or(false)
+            && f.name() == name
+        })
+    }
 }
 
 impl Hash for Field {
@@ -309,6 +341,12 @@ impl ColumnMeta for Schema {
 
     fn data_type(&self, col: &Column) -> Result<&DataType>{
         Ok(self.field_from_column(col)?.data_type())
+    }
+}
+
+impl std::fmt::Display for Schema {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "fields:[{}], metadata:{:?}", self.fields.iter().map(|f|f.qualified_name()).collect::<Vec<String>>().join(", "), self.metadata)
     }
 }
 
