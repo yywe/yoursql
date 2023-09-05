@@ -7,6 +7,8 @@ use crate::expr::expr::Expr;
 use crate::expr::expr::Sort;
 use crate::expr::logical_plan::LogicalPlan;
 use anyhow::Result;
+use crate::common::schema::Schema;
+use std::collections::HashSet;
 
 pub fn normalize_col(expr: Expr, plan: &LogicalPlan) -> Result<Expr> {
     expr.transform(&|expr| {
@@ -122,6 +124,20 @@ fn expr_match(needle: &Expr, haystack: &Expr) -> bool {
     } else {
         haystack == needle
     }
+}
+
+
+pub fn normalize_col_with_schemas_and_ambiguity_check(expr: Expr, schemas: &[&[&Schema]], using_columns: &[HashSet<Column>]) -> Result<Expr> {
+    expr.transform(&|expr|{
+        Ok({
+            if let Expr::Column(c) = expr {
+                let col = c.normalize_with_schemas_and_ambiguity_check(schemas, using_columns)?;
+                Transformed::Yes(Expr::Column(col))
+            }else{
+                Transformed::No(expr)
+            }
+        })
+    })
 }
 
 #[cfg(test)]

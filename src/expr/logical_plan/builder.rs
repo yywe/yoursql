@@ -1,6 +1,9 @@
 use crate::common::schema::SchemaRef;
 use crate::common::table_reference::OwnedTableReference;
-use crate::expr::expr_rewriter::{normalize_col, normalize_cols, rewrite_sort_cols_by_aggs};
+use crate::expr::expr_rewriter::{
+    normalize_col, normalize_col_with_schemas_and_ambiguity_check, normalize_cols,
+    rewrite_sort_cols_by_aggs,
+};
 use crate::expr::utils::columnize_expr;
 use crate::expr::utils::expand_qualified_wildcard;
 use crate::expr::utils::expand_wildcard;
@@ -15,6 +18,7 @@ use crate::expr::logical_plan::{Aggregate, Filter, Projection, TableScan};
 use crate::expr::logical_plan::{JoinType, Schema};
 use anyhow::{anyhow, Result};
 use std::collections::HashMap;
+use std::ptr::null;
 use std::sync::Arc;
 
 pub struct LogicalPlanBuilder {
@@ -144,21 +148,28 @@ impl LogicalPlanBuilder {
         let exprs = rewrite_sort_cols_by_aggs(exprs, &self.plan)?;
         let schema = self.plan.output_schema();
         let mut missing_cols: Vec<Column> = vec![];
-        exprs.clone().into_iter().try_for_each::<_,Result<()>>(|expr|{
-            // first get all the used columns in the expr
-            let columns = expr.used_columns()?;
-            
-            // check if the input schema has the column (field), if not, add to missing
-            columns.into_iter().for_each(|c|{
-                if schema.field_from_column(&c).is_err() {
-                    missing_cols.push(c)
-                }
-            });
-            Ok(())
-        })?;
+        exprs
+            .clone()
+            .into_iter()
+            .try_for_each::<_, Result<()>>(|expr| {
+                // first get all the used columns in the expr
+                let columns = expr.used_columns()?;
+
+                // check if the input schema has the column (field), if not, add to missing
+                columns.into_iter().for_each(|c| {
+                    if schema.field_from_column(&c).is_err() {
+                        missing_cols.push(c)
+                    }
+                });
+                Ok(())
+            })?;
 
         if missing_cols.is_empty() {
-            return Ok(Self::from(LogicalPlan::Sort(super::Sort { expr: normalize_cols(exprs, &self.plan)?, input: Arc::new(self.plan), fetch: None })));
+            return Ok(Self::from(LogicalPlan::Sort(super::Sort {
+                expr: normalize_cols(exprs, &self.plan)?,
+                input: Arc::new(self.plan),
+                fetch: None,
+            })));
         }
 
         // the strategy is, we will first add the missing columns to the current logical plan
@@ -167,11 +178,19 @@ impl LogicalPlanBuilder {
         // so the new projection will diretly refer the column name
 
         // it is just the column names based on original schema
-        let new_exprs = schema.fields().iter().map(|f|Expr::Column(f.qualified_column())).collect();
+        let new_exprs = schema
+            .fields()
+            .iter()
+            .map(|f| Expr::Column(f.qualified_column()))
+            .collect();
 
         // first do a sort plan
         let plan = Self::add_missing_columns(self.plan, &missing_cols)?;
-        let plan_sorted = LogicalPlan::Sort(super::Sort { expr: normalize_cols(exprs,&plan)?, input: Arc::new(plan), fetch: None });
+        let plan_sorted = LogicalPlan::Sort(super::Sort {
+            expr: normalize_cols(exprs, &plan)?,
+            input: Arc::new(plan),
+            fetch: None,
+        });
 
         // now do a projection
         Ok(Self::from(LogicalPlan::Projection(Projection::try_new(
@@ -219,6 +238,157 @@ impl LogicalPlanBuilder {
                 curr_plan.with_new_inputs(&new_inputs)
             }
         }
+    }
+
+    pub fn join(
+        self,
+        right: LogicalPlan,
+        join_type: JoinType,
+        join_keys: (Vec<impl Into<Column>>, Vec<impl Into<Column>>),
+        filter: Option<Expr>,
+    ) -> Result<Self> {
+        self.join_detailed(right, join_type, join_keys, filter, false)
+    }
+
+    pub fn join_detailed(
+        self,
+        right: LogicalPlan,
+        join_type: JoinType,
+        join_keys: (Vec<impl Into<Column>>, Vec<impl Into<Column>>),
+        filter: Option<Expr>,
+        null_equals_null: bool,
+    ) -> Result<Self> {
+        if join_keys.0.len() != join_keys.1.len() {
+            return Err(anyhow!(
+                "join left keys are not the same length as the right keys"
+            ));
+        }
+        let filter = if let Some(expr) = filter {
+            let filter = normalize_col_with_schemas_and_ambiguity_check(
+                expr,
+                &[&[
+                    self.plan.output_schema().as_ref(),
+                    right.output_schema().as_ref(),
+                ]],
+                &[],
+            )?;
+            Some(filter)
+        } else {
+            None
+        };
+
+        // in where A join B on x = y, it is unkown x is from A or B, we need to resolve the qualifier first
+        let (left_keys, right_keys): (Vec<Result<Column>>, Vec<Result<Column>>) = join_keys
+            .0
+            .into_iter()
+            .zip(join_keys.1.into_iter())
+            .map(|(l, r)| {
+                let l = l.into();
+                let r = r.into();
+                let left_schema = self.plan.output_schema();
+                let right_schema = right.output_schema();
+                match (&l.relation, &r.relation) {
+                    (Some(lr), Some(rr)) => {
+                        let l_is_left = left_schema.field_with_qualified_name(lr, &l.name);
+                        let l_is_right = right_schema.field_with_qualified_name(lr, &l.name);
+                        let r_is_left = left_schema.field_with_qualified_name(rr, &r.name);
+                        let r_is_right = right_schema.field_with_qualified_name(rr, &r.name);
+                        match (l_is_left, l_is_right, r_is_left, r_is_right) {
+                            (_, Ok(_), Ok(_), _) => (Ok(r), Ok(l)),
+                            (Ok(_), _, _, Ok(_)) => (Ok(l), Ok(r)),
+                            _ => (Self::normalize(&self.plan, l), Self::normalize(&right, r)),
+                        }
+                    }
+                    (Some(lr), None) => {
+                        let l_is_left = left_schema.field_with_qualified_name(lr, &l.name);
+                        let l_is_right = right_schema.field_with_qualified_name(lr, &l.name);
+                        match (l_is_left, l_is_right) {
+                            (Ok(_), _) => (Ok(l), Self::normalize(&right, r)),
+                            (_, Ok(_)) => (Self::normalize(&self.plan, r), Ok(l)),
+                            _ => (Self::normalize(&self.plan, l), Self::normalize(&right, r)),
+                        }
+                    }
+                    (None, Some(rr)) => {
+                        let r_is_left = left_schema.field_with_qualified_name(rr, &r.name);
+                        let r_is_right = right_schema.field_with_qualified_name(rr, &r.name);
+
+                        match (r_is_left, r_is_right) {
+                            (Ok(_), _) => (Ok(r), Self::normalize(&right, l)),
+                            (_, Ok(_)) => (Self::normalize(&self.plan, l), Ok(r)),
+                            _ => (Self::normalize(&self.plan, l), Self::normalize(&right, r)),
+                        }
+                    }
+                    (None, None) => {
+                        let mut swap = false;
+                        let left_key = Self::normalize(&self.plan, l.clone()).or_else(|_| {
+                            swap = true;
+                            Self::normalize(&right, l)
+                        });
+                        if swap {
+                            (Self::normalize(&self.plan, r), left_key)
+                        } else {
+                            (left_key, Self::normalize(&right, r))
+                        }
+                    }
+                }
+            })
+            .unzip();
+
+        let left_keys = left_keys.into_iter().collect::<Result<Vec<Column>>>()?;
+        let right_keys = right_keys.into_iter().collect::<Result<Vec<Column>>>()?;
+
+        let on = left_keys
+            .into_iter()
+            .zip(right_keys.into_iter())
+            .map(|(l, r)| (Expr::Column(l), Expr::Column(r)))
+            .collect();
+
+        let join_schema = build_join_schema(
+            self.plan.output_schema().as_ref(),
+            right.output_schema().as_ref(),
+            &join_type,
+        )?;
+
+        Ok(Self::from(LogicalPlan::Join(super::Join {
+            left: Arc::new(self.plan),
+            right: Arc::new(right),
+            on: on,
+            filter: filter,
+            join_type: join_type,
+            join_constraint: super::JoinConstraint::On,
+            schema: Arc::new(join_schema),
+            null_equals_null: null_equals_null,
+        })))
+    }
+
+    pub fn join_using(self, right: LogicalPlan, join_type: JoinType, using_keys: Vec<impl Into<Column> + Clone>) -> Result<Self> {
+        let left_keys: Vec<Column> = using_keys.clone().into_iter().map(|c|Self::normalize(&self.plan, c)).collect::<Result<_>>()?;
+        let right_keys: Vec<Column> = using_keys.clone().into_iter().map(|c|Self::normalize(&right, c)).collect::<Result<_>>()?;
+        let on: Vec<(_,_)> = left_keys.into_iter().zip(right_keys.into_iter()).collect();
+        let join_schema = build_join_schema(
+            self.plan.output_schema().as_ref(),
+            right.output_schema().as_ref(),
+            &join_type,
+        )?;
+        let mut join_on: Vec<(Expr, Expr)> = vec![];
+        for (l, r) in &on {
+            if !self.plan.output_schema().has_column(l) || !right.output_schema().has_column(l) {
+                return Err(anyhow!(format!("join left column {} or right column{} is missing in respective schema", l,r)));
+            }else{
+                join_on.push((Expr::Column(l.clone()), Expr::Column(r.clone())))
+            }
+        }
+        Ok(Self::from(LogicalPlan::Join(super::Join {
+            left: Arc::new(self.plan),
+            right: Arc::new(right),
+            on: join_on,
+            filter: None,
+            join_type: join_type,
+            join_constraint: super::JoinConstraint::Using,
+            schema: Arc::new(join_schema),
+            null_equals_null: false,
+        })))
+
     }
 }
 
