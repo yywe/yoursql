@@ -27,6 +27,7 @@ pub enum LogicalPlan {
     Aggregate(Aggregate),
     Sort(Sort),
     Join(Join),
+    CrossJoin(CrossJoin),
     TableScan(TableScan),
     EmptyRelation(EmptyRelation),
     Limit(Limit),
@@ -70,6 +71,13 @@ pub struct Join {
     pub join_constraint: JoinConstraint,
     pub schema: SchemaRef,
     pub null_equals_null: bool,
+}
+
+#[derive(Clone, PartialEq, Eq, Hash)]
+pub struct CrossJoin {
+    pub left: Arc<LogicalPlan>,
+    pub right: Arc<LogicalPlan>,
+    pub schema: SchemaRef,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -155,6 +163,7 @@ impl LogicalPlan {
             LogicalPlan::Aggregate(Aggregate { schema, .. }) => schema.clone(),
             LogicalPlan::Sort(Sort { input, .. }) => input.output_schema(),
             LogicalPlan::Join(Join { schema, .. }) => schema.clone(),
+            LogicalPlan::CrossJoin(CrossJoin{schema,..}) => schema.clone(),
             LogicalPlan::Limit(Limit { input, .. }) => input.output_schema(),
             LogicalPlan::Projection(Projection { schema, .. }) => schema.clone(),
         }
@@ -168,6 +177,7 @@ impl LogicalPlan {
             LogicalPlan::Aggregate(Aggregate { input, .. }) => vec![input],
             LogicalPlan::Sort(Sort { input, .. }) => vec![input],
             LogicalPlan::Join(Join { left, right, .. }) => vec![left, right],
+            LogicalPlan::CrossJoin(CrossJoin{left, right,..})=> vec![left, right],
             LogicalPlan::Limit(Limit { input, .. }) => vec![input],
             LogicalPlan::TableScan { .. } | LogicalPlan::EmptyRelation { .. } => vec![],
         }
@@ -277,6 +287,9 @@ impl LogicalPlan {
                             }
                         }
                     }
+                    LogicalPlan::CrossJoin(_) => {
+                        write!(f, "CrossJoin:")
+                    }
                     LogicalPlan::Limit(Limit {
                         ref skip,
                         ref fetch,
@@ -368,7 +381,7 @@ impl LogicalPlan {
             }
             LogicalPlan::Sort(Sort { expr, .. }) => expr.iter().try_for_each(f),
             LogicalPlan::TableScan(TableScan { filters, .. }) => filters.iter().try_for_each(f),
-            LogicalPlan::EmptyRelation(_) | LogicalPlan::Limit(_) => Ok(()),
+            LogicalPlan::EmptyRelation(_) | LogicalPlan::Limit(_) | LogicalPlan::CrossJoin(_) => Ok(()),
         }
     }
 

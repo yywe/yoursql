@@ -305,6 +305,14 @@ impl Schema {
             && f.name() == name
         })
     }
+    pub fn join(&self, schema: &Schema) -> Result<Self> {
+        let mut fields = self.fields.clone().0.to_vec().into_iter().map(|f|f.as_ref().clone()).collect::<Vec<_>>();
+        let mut metadata = self.metadata.clone();
+        let other_fields =schema.fields().clone().0.to_vec().into_iter().map(|f|f.as_ref().clone()).collect::<Vec<_>>();
+        fields.extend_from_slice(&other_fields);
+        metadata.extend(schema.metadata.clone());
+        Self::new_with_metadata(fields, metadata)
+    }
 }
 
 impl Hash for Field {

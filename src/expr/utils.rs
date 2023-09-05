@@ -14,6 +14,7 @@ use crate::expr::expr::{BinaryExpr, Operator};
 
 use super::expr::{AggregateFunction, AggregateFunctionType};
 use super::logical_plan::builder::build_join_schema;
+use crate::expr::logical_plan::builder::LogicalPlanBuilder;
 
 
 pub fn inspect_expr_pre<F>(expr: &Expr, mut f: F) -> Result<()>
@@ -156,6 +157,11 @@ pub fn from_plan(plan: &LogicalPlan, expr: &[Expr], inputs: &[LogicalPlan]) -> R
              }).collect::<Result<Vec<(Expr, Expr)>>>()?;
              let filter_expr = (expr.len() > equi_expr_count).then(||expr[expr.len()-1].clone());
              Ok(LogicalPlan::Join(Join { left: Arc::new(inputs[0].clone()), right: Arc::new(inputs[1].clone()), on: new_on, filter: filter_expr, join_type: *join_type, join_constraint: *join_constraint, schema: SchemaRef::new(schema), null_equals_null: *null_equals_null }))
+        }
+        LogicalPlan::CrossJoin(_) => {
+            let left = inputs[0].clone();
+            let right = inputs[1].clone();
+            LogicalPlanBuilder::from(left).cross_join(right)?.build()
         }
         LogicalPlan::Limit(Limit{skip, fetch,..}) => Ok(LogicalPlan::Limit(
             super::logical_plan::Limit { skip: *skip, fetch: *fetch, input: Arc::new(inputs[0].clone()) }

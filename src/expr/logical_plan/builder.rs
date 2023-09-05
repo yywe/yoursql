@@ -390,6 +390,11 @@ impl LogicalPlanBuilder {
         })))
 
     }
+
+    pub fn cross_join(self, right: LogicalPlan) -> Result<Self> {
+        let schema = self.plan.output_schema().join(&right.output_schema())?;
+        Ok(Self::from(LogicalPlan::CrossJoin(super::CrossJoin { left: Arc::new(self.plan), right: Arc::new(right), schema: Arc::new(schema) })))
+    }
 }
 
 pub fn project(
