@@ -13,7 +13,7 @@ impl<'a> std::fmt::Display for ResolvedTableReference<'a> {
     }
 }
 
-#[derive(Serialize, Deserialize, Eq, PartialEq, Debug, Clone)]
+#[derive(Serialize, Deserialize, Eq, PartialEq, Ord,PartialOrd, Hash, Debug, Clone)]
 pub enum TableReference<'a> {
     Bare {
         table: Cow<'a, str>,

@@ -1,6 +1,16 @@
 use crate::common::types::DataType;
 use crate::expr::expr::Operator;
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, anyhow};
+
+use super::expr::{AggregateFunctionType};
+
+
+pub static STRINGS: &[DataType] = &[DataType::Utf8];
+pub static NUMERICS: &[DataType] = &[DataType::Int8, DataType::Int16,DataType::Int32,DataType::Int64,
+DataType::UInt8,DataType::UInt16,DataType::UInt32,DataType::UInt64,DataType::Float32,DataType::Float64];
+pub static DATES: &[DataType] = &[DataType::Date32, DataType::Date64];
+pub static TIMES: &[DataType] = &[DataType::Time32Millisecond, DataType::Time32Second, DataType::Time64Microsecond, DataType::Time64Nanosecond];
+
 
 pub fn is_signed_numeric(dt: &DataType) -> bool {
     matches!(dt, DataType::Int8 | DataType::Int16 | DataType::Int32 | DataType::Int64 | DataType::Float32 | DataType::Float64)
@@ -60,4 +70,70 @@ fn mathmatical_numerical_coercion(lhs_type: &DataType, rhs_type: &DataType) -> O
         (DataType::UInt8, _) | (_, DataType::UInt8) => Some(DataType::UInt8),  
         _=>None
     }
+}
+
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub enum Volatility {
+    Immutable,
+    Stable,
+    Volatile,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub enum TypeSignature {
+    VariadicAny, // arbitary number of arguments with arbitrary types
+    Uniform(usize, Vec<DataType>), //fixed number of identical argument types, from vec, 
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Signature {
+    pub type_signature: TypeSignature,
+    pub volatility: Volatility,
+}
+
+impl Signature {
+    pub fn variadic_any(volatility: Volatility) -> Self {
+        Self {
+            type_signature: TypeSignature::VariadicAny,
+            volatility,
+        }
+    }
+    pub fn uniform(arg_count: usize, valid_types: Vec<DataType>, volatility: Volatility) -> Self {
+        Self {
+            type_signature: TypeSignature::Uniform(arg_count, valid_types),
+            volatility,
+        }
+    }
+}
+
+pub fn signature(fun: &AggregateFunctionType) -> Signature {
+    match fun {
+        AggregateFunctionType::Count=> Signature::variadic_any(Volatility::Immutable),
+        AggregateFunctionType::Min | AggregateFunctionType::Max => {
+            let valid_types = STRINGS.iter().chain(NUMERICS.iter()).chain(TIMES.iter()).chain(DATES.iter()).cloned().collect::<Vec<_>>();
+            Signature::uniform(1, valid_types, Volatility::Immutable)    
+        }
+        AggregateFunctionType::Avg | AggregateFunctionType::Sum => {
+            Signature::uniform(1, NUMERICS.to_vec(), Volatility::Immutable)
+        },
+    }
+}
+
+
+pub fn coerce_types(agg_func: &AggregateFunctionType, input_types: &[DataType], signature: &Signature) -> Result<Vec<DataType>> {
+    // check args count
+    match signature.type_signature {
+        TypeSignature::Uniform(agg_count, _) => {
+            if input_types.len() != agg_count {
+                return Err(anyhow!(format!("the function {:?} expect {:?} args, but {:?} are given", agg_func, agg_count, input_types.len())))
+            }
+        }
+        TypeSignature::VariadicAny=>{
+            if input_types.is_empty() {
+                return Err(anyhow!(format!("the function {:?} expect at least one argument", agg_func)))
+            }
+        }
+    }
+    Ok(input_types.to_vec())
 }

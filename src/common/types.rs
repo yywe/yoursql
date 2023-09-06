@@ -2,7 +2,7 @@ use chrono::prelude::DateTime;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::time::{Duration, UNIX_EPOCH};
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, PartialEq)]
 pub enum DataValue {
     Null,
     Boolean(Option<bool>),
@@ -31,6 +31,9 @@ pub enum DataValue {
     /// Time stored as a signed 64bit int as nanoseconds since midnight
     Time64Nanosecond(Option<i64>),
 }
+
+/// note Eq cannot be derived due to f32, f64, only PartialEq can
+impl Eq for DataValue{}
 
 macro_rules! format_option {
     ($F: expr, $EXPR: expr) => {
@@ -142,9 +145,39 @@ impl std::fmt::Display for DataValue {
     }
 }
 
+impl std::fmt::Debug for DataValue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            DataValue::Null =>  write!(f, "NULL"),
+            DataValue::Boolean(e)=>write!(f,"Boolean({self})"),
+            DataValue::Float32(e) =>write!(f,"Float32({self})"),
+            DataValue::Float64(e) => write!(f,"Float64({self})"),
+            DataValue::Int8(e) => write!(f,"Int8({self})"),
+            DataValue::Int16(e) => write!(f,"Int16({self})"),
+            DataValue::Int32(e) => write!(f,"Int32({self})"),
+            DataValue::Int64(e) => write!(f,"Int64({self})"),
+            DataValue::UInt8(e) => write!(f,"Uint8({self})"),
+            DataValue::UInt16(e) => write!(f,"Uint16({self})"),
+            DataValue::UInt32(e) =>write!(f,"Uint32({self})"),
+            DataValue::UInt64(e) => write!(f,"Uint64({self})"),
+            DataValue::Utf8(e) => write!(f,"Utf8({self})"),
+            DataValue::Binary(e) => match e {
+                Some(_) => write!(f, "Binary(\"{self}\")"),
+                None=>write!(f,"Binary{self}"),
+            },
+            DataValue::Date32(_) => write!(f, "Date32(\"{self}\")"), 
+            DataValue::Date64(_) => write!(f, "Date64(\"{self}\")"), 
+            DataValue::Time32Second(_) => write!(f, "Time32Second(\"{self}\")"),
+            DataValue::Time32Millisecond(_) => write!(f, "Time32Millisecond(\"{self}\")"),
 
+            DataValue::Time64Microsecond(e) => write!(f, "Time64Microsecond(\"{self}\")"),
 
-#[derive(Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
+            DataValue::Time64Nanosecond(e) =>  write!(f, "Time64Nanosecond(\"{self}\")"),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Eq, PartialEq, Hash)]
 pub enum DataType {
     Null,
     Boolean,
@@ -217,6 +250,62 @@ impl DataValue {
             DataValue::Time32Millisecond(v)=> v.is_none(),
             DataValue::Time64Microsecond(v)=> v.is_none(),
             DataValue::Time64Nanosecond(v)=> v.is_none(),
+        }
+    }
+}
+
+impl std::fmt::Display for DataType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{self:?}")
+    }
+}
+
+
+/// wrapper to hash f32, f64
+/// in rust, you cannot impl foreign trait for foreign type
+/// need to use own type. the hash for f32 and f64 is to recognize
+/// its binary represenation, i.e, build u32 from f32 bits, that is used
+/// as its hash
+struct Fl<T>(T);
+macro_rules! hash_float_value {
+    ($(($t:ty, $i:ty)),+) => {
+        $(
+            impl std::hash::Hash for Fl<$t> {
+                #[inline]
+                fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+                    state.write(&<$i>::from_ne_bytes(self.0.to_ne_bytes()).to_ne_bytes())
+                }
+            }
+        )+
+    };
+}
+
+hash_float_value!((f64, u64), (f32, u32));
+
+impl std::hash::Hash for DataValue{
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        use DataValue::*;
+        match self {
+            Null=>1.hash(state),
+            Boolean(v)=>v.hash(state),
+            Float32(v)=>v.map(Fl).hash(state),
+            Float64(v)=>v.map(Fl).hash(state),
+            Int8(v) => v.hash(state),
+            Int16(v) => v.hash(state),
+            Int32(v) => v.hash(state),
+            Int64(v) => v.hash(state),
+            UInt8(v) => v.hash(state),
+            UInt16(v) => v.hash(state),
+            UInt32(v) => v.hash(state),
+            UInt64(v) => v.hash(state),
+            Utf8(v)=>v.hash(state),
+            Date32(v)=>v.hash(state),
+            Date64(v)=>v.hash(state),
+            Binary(v)=>v.hash(state),
+            Time32Millisecond(v)=>v.hash(state),
+            Time32Second(v)=>v.hash(state),
+            Time64Microsecond(v)=>v.hash(state),
+            Time64Nanosecond(v)=>v.hash(state),
         }
     }
 }

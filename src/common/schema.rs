@@ -2,14 +2,14 @@ use anyhow::Context;
 use anyhow::Result;
 use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap,HashSet};
 use std::ops::Deref;
 use std::sync::Arc;
 use crate::common::types::DataType;
 use super::column::Column;
 use super::table_reference::OwnedTableReference;
 use super::table_reference::TableReference;
-
+use std::hash::Hash;
 #[derive(Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
 pub struct Field {
     name: String,
@@ -29,6 +29,14 @@ impl Field {
             qualifier: qualifier,
         }
     }
+    pub fn qualifier(&self) -> Option<&OwnedTableReference> {
+        self.qualifier.as_ref()
+    }
+    
+    pub fn set_qualifier(&mut self, qualifier: Option<OwnedTableReference>) {
+        self.qualifier = qualifier;
+    } 
+
     pub fn name(&self) -> &String {
         &self.name
     }
@@ -40,11 +48,31 @@ impl Field {
     pub fn is_nullable(&self) -> bool {
         self.nullable
     }
+
+    /// based on the field definition, conver it to a Expr::Column
+    pub fn qualified_column(&self) -> Column {
+        Column {
+            relation: self.qualifier.clone(),
+            name: self.name.to_string(),
+        }
+    }
+    pub fn with_nullable(mut self, nullable: bool) -> Self {
+        self.nullable = nullable;
+        self
+    }
+
+    pub fn qualified_name(&self) -> String {
+        if let Some(qualifier) = &self.qualifier {
+            format!("{}.{}", qualifier, self.name())
+        }else{
+            self.name().to_owned()
+        }
+    }
 }
 
 pub type FieldRef = Arc<Field>;
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct Fields(Arc<[FieldRef]>);
 
 impl Fields {
@@ -77,6 +105,9 @@ impl Fields {
                 .iter()
                 .zip(other.iter())
                 .all(|(a, b)| Arc::ptr_eq(a, b) || *(*a) == *(*b))
+    }
+    pub fn to_field_vec(&self) -> Vec<&Field> {
+        self.0.iter().map(|e|&(**e)).collect()
     }
 }
 
@@ -116,7 +147,7 @@ impl Deref for Fields {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct Schema {
     pub fields: Fields,
     pub metadata: HashMap<String, String>,
@@ -137,8 +168,35 @@ impl Schema {
             metadata: metadata,
         }
     }
+
+    /// before creating Schema, also check the name, ensure a unique name is not 
+    /// both unqualified and qualified, see impl
+    pub fn new_with_metadata(fields: Vec<Field>, metadata: HashMap<String, String>) -> Result<Self> {
+        let mut qualified_names = HashSet::new();
+        let mut unqualified_names = HashSet::new();
+        for field in &fields {
+            if let Some(qualifier) = field.qualifier() {
+                qualified_names.insert((qualifier, field.name()));
+            }else if !unqualified_names.insert(field.name()) {
+                return Err(anyhow!(format!("duplicate unqualified field {}", field.name())))
+            }
+        }
+        let mut qualified_names =  qualified_names.iter().map(|(l, r)|(l.to_owned(), r.to_owned())).collect::<Vec<(&OwnedTableReference, &String)>>();
+        qualified_names.sort();
+        for (qualifer, name) in &qualified_names {
+            if unqualified_names.contains(name) {
+                return Err(anyhow!(format!("ambigious  field: {}, qualifed version:{}", name, qualifer)))
+            }
+        };
+        Ok(Self {fields: fields.into(), metadata:metadata})
+    }
+
     pub fn fields(&self) -> &Fields {
         &self.fields
+    }
+
+    pub fn metadata(&self) -> &HashMap<String, String> {
+        &self.metadata
     }
 
     /// cause we implemented Deref for fields, so we can use &self.fields[i]
@@ -223,8 +281,65 @@ impl Schema {
             }
         }
     }
+
+    pub fn fields_with_qualifed(&self, qualifier: &TableReference) -> Vec<&Field> {
+        self.fields.iter().filter(|field|field.qualifier().map(|q|q.eq(qualifier)).unwrap_or(false)).map(|e|&(**e)).collect()
+    }
+
+    pub fn try_from_qualified_schema<'a>(qualifier: impl Into<TableReference<'a>>, schema: &Schema) -> Result<Self> {
+        let qualifier = qualifier.into();
+        Self::new_with_metadata(schema.fields().iter().map(|f|{
+            let mut field = f.as_ref().clone();
+            field.qualifier = Some(qualifier.clone().to_owned_reference());
+            field
+        }).collect(), schema.metadata().clone())
+    }
+
+    pub fn has_column(&self, column: &Column) -> bool {
+        match &column.relation {
+            Some(r) => self.has_column_with_qualifed_name(r, &column.name),
+            None=>self.has_column_with_unqualified_name(&column.name),
+        }
+    }
+    pub fn has_column_with_unqualified_name(&self, name: &str) -> bool {
+        self.fields().iter().any(|f|f.name() == name)
+    }
+    pub fn has_column_with_qualifed_name(&self, qualifier: &TableReference, name: &str)->bool {
+        self.fields().iter().any(|f|{
+            f.qualifier().map(|q|q.eq(qualifier)).unwrap_or(false)
+            && f.name() == name
+        })
+    }
+    pub fn join(&self, schema: &Schema) -> Result<Self> {
+        let mut fields = self.fields.clone().0.to_vec().into_iter().map(|f|f.as_ref().clone()).collect::<Vec<_>>();
+        let mut metadata = self.metadata.clone();
+        let other_fields =schema.fields().clone().0.to_vec().into_iter().map(|f|f.as_ref().clone()).collect::<Vec<_>>();
+        fields.extend_from_slice(&other_fields);
+        metadata.extend(schema.metadata.clone());
+        Self::new_with_metadata(fields, metadata)
+    }
 }
 
+impl Hash for Field {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.name.hash(state);
+        self.data_type.hash(state);
+        self.nullable.hash(state);
+        let mut keys: Vec<&String> = self.metadata.keys().collect();
+        keys.sort();
+        for k in keys {
+            k.hash(state);
+            self.metadata.get(k).expect("key valid").hash(state);
+        }
+    }
+}
+
+impl Hash for Schema {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.fields.hash(state);
+        self.metadata.len().hash(state);
+    }
+}
 
 /// Given column name, retrieve relevant meta information 
 pub trait ColumnMeta: std::fmt::Debug {
@@ -239,6 +354,12 @@ impl ColumnMeta for Schema {
 
     fn data_type(&self, col: &Column) -> Result<&DataType>{
         Ok(self.field_from_column(col)?.data_type())
+    }
+}
+
+impl std::fmt::Display for Schema {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "fields:[{}], metadata:{:?}", self.fields.iter().map(|f|f.qualified_name()).collect::<Vec<String>>().join(", "), self.metadata)
     }
 }
 
