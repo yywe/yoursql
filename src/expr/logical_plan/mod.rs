@@ -13,9 +13,9 @@ use crate::{
 };
 use anyhow::{anyhow, Result};
 use std::collections::HashSet;
+use std::fmt::Display;
 use std::hash::Hash;
 use std::sync::Arc;
-use std::fmt::Display;
 
 use super::expr_schema::{exprlist_to_fields, ExprToSchema};
 use crate::expr_vec_fmt;
@@ -163,7 +163,7 @@ impl LogicalPlan {
             LogicalPlan::Aggregate(Aggregate { schema, .. }) => schema.clone(),
             LogicalPlan::Sort(Sort { input, .. }) => input.output_schema(),
             LogicalPlan::Join(Join { schema, .. }) => schema.clone(),
-            LogicalPlan::CrossJoin(CrossJoin{schema,..}) => schema.clone(),
+            LogicalPlan::CrossJoin(CrossJoin { schema, .. }) => schema.clone(),
             LogicalPlan::Limit(Limit { input, .. }) => input.output_schema(),
             LogicalPlan::Projection(Projection { schema, .. }) => schema.clone(),
         }
@@ -177,7 +177,7 @@ impl LogicalPlan {
             LogicalPlan::Aggregate(Aggregate { input, .. }) => vec![input],
             LogicalPlan::Sort(Sort { input, .. }) => vec![input],
             LogicalPlan::Join(Join { left, right, .. }) => vec![left, right],
-            LogicalPlan::CrossJoin(CrossJoin{left, right,..})=> vec![left, right],
+            LogicalPlan::CrossJoin(CrossJoin { left, right, .. }) => vec![left, right],
             LogicalPlan::Limit(Limit { input, .. }) => vec![input],
             LogicalPlan::TableScan { .. } | LogicalPlan::EmptyRelation { .. } => vec![],
         }
@@ -279,7 +279,7 @@ impl LogicalPlan {
                             JoinConstraint::Using => {
                                 write!(
                                     f,
-                                    "{} Join: Using{}{}",
+                                    "{} Join: Using {}{}",
                                     join_type,
                                     join_expr.join(", "),
                                     filter_expr
@@ -349,7 +349,8 @@ impl LogicalPlan {
         self.inspect_expressions(|e| {
             exprs.push(e.clone());
             Ok(())
-        }).unwrap();
+        })
+        .unwrap();
         exprs
     }
 
@@ -381,7 +382,9 @@ impl LogicalPlan {
             }
             LogicalPlan::Sort(Sort { expr, .. }) => expr.iter().try_for_each(f),
             LogicalPlan::TableScan(TableScan { filters, .. }) => filters.iter().try_for_each(f),
-            LogicalPlan::EmptyRelation(_) | LogicalPlan::Limit(_) | LogicalPlan::CrossJoin(_) => Ok(()),
+            LogicalPlan::EmptyRelation(_) | LogicalPlan::Limit(_) | LogicalPlan::CrossJoin(_) => {
+                Ok(())
+            }
         }
     }
 
@@ -395,7 +398,7 @@ impl LogicalPlan {
                 .inputs()
                 .iter()
                 .map(|input| input.output_schema())
-                .map(|e|(*e).clone())
+                .map(|e| (*e).clone())
                 .collect(),
             _ => vec![],
         }
@@ -479,10 +482,8 @@ impl Aggregate {
     ) -> Result<Self> {
         let all_exprs = group_expr.iter().chain(aggr_expr.iter());
         let ans_fields = exprlist_to_fields(all_exprs, &input)?;
-        let schema = Schema::new_with_metadata(
-            ans_fields,
-            input.output_schema().metadata().clone(),
-        )?;
+        let schema =
+            Schema::new_with_metadata(ans_fields, input.output_schema().metadata().clone())?;
         Self::try_new_with_schema(input, group_expr, aggr_expr, Arc::new(schema))
     }
 }
@@ -538,7 +539,11 @@ pub fn display_schema(schema: &Schema) -> impl std::fmt::Display + '_ {
                     write!(f, ", ")?;
                 }
                 let nullable_str = if field.is_nullable() { ";N" } else { "" };
-                let qualifier_str = if let Some(q) = field.qualifier() {q.to_string()+"."} else {"".to_string()};
+                let qualifier_str = if let Some(q) = field.qualifier() {
+                    q.to_string() + "."
+                } else {
+                    "".to_string()
+                };
                 write!(
                     f,
                     "{}{}:{:?}{}",
@@ -554,9 +559,151 @@ pub fn display_schema(schema: &Schema) -> impl std::fmt::Display + '_ {
     Wrapper(schema)
 }
 
-
 impl std::fmt::Debug for LogicalPlan {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.display_indent().fmt(f)
     }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::common::schema::Field;
+    use crate::common::schema::Schema;
+    use crate::common::table_reference::TableReference;
+    use crate::common::types::DataType;
+    use crate::common::types::DataValue;
+    use crate::expr::expr::Sort;
+    use crate::expr::logical_plan::builder::LogicalPlanBuilder;
+    use crate::expr::utils::{col, min};
+    use crate::storage::empty::EmptyTable;
+    use std::collections::HashMap;
+    use std::sync::Arc;
+
+    fn test_table_scan(
+        name: impl Into<OwnedTableReference>,
+        schema: &Schema,
+        projection: Option<Vec<usize>>,
+    ) -> Result<LogicalPlanBuilder> {
+        LogicalPlanBuilder::scan(
+            name,
+            Arc::new(EmptyTable::new(Arc::new(schema.clone()))),
+            projection,
+        )
+    }
+
+    fn employee_schema() -> Schema {
+        Schema::new(
+            vec![
+                Field::new("id", DataType::Int32, true, None),
+                Field::new("first_name", DataType::Utf8, true, None),
+                Field::new("last_name", DataType::Utf8, true, None),
+                Field::new("state", DataType::Utf8, true, None),
+                Field::new("salary", DataType::Int32, true, None),
+            ],
+            HashMap::new(),
+        )
+    }
+
+    #[test]
+    fn build_basic_plan() -> Result<()> {
+        let mut builder = test_table_scan("employee", &employee_schema(), Some(vec![0, 3]))?;
+        builder = builder
+            .filter(col("state").eq(Expr::Literal(DataValue::Utf8(Some("CO".to_string())))))?;
+        builder = builder.project(vec![col("id")])?;
+        let plan = builder.build().unwrap();
+        let _visplan = format!("{plan:?}");
+        //println!("{}",_visplan);
+        Ok(())
+    }
+
+    /// ensure the builder schema is qualifed
+    #[test]
+    fn builder_schema() -> Result<()> {
+        // lower case
+        let builder = test_table_scan("employee", &employee_schema(), None).unwrap();
+        let expected_schema = Schema::try_from_qualified_schema(
+            TableReference::Bare {
+                table: "employee".into(),
+            },
+            &employee_schema(),
+        )
+        .unwrap();
+        assert_eq!(
+            &expected_schema,
+            builder.build().unwrap().output_schema().as_ref()
+        );
+
+        // upper case
+        let builder = test_table_scan("EMPLOYEE", &employee_schema(), None).unwrap();
+        // when make table reference from string, it will normalize the ident, parse_identifiers_normalized
+        let expected_schema = Schema::try_from_qualified_schema(
+            TableReference::Bare {
+                table: "employee".into(),
+            },
+            &employee_schema(),
+        )
+        .unwrap();
+        assert_eq!(
+            &expected_schema,
+            builder.build().unwrap().output_schema().as_ref()
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn plan_builder_aggregate() -> Result<()> {
+        let mut builder =
+            test_table_scan("employee", &employee_schema(), Some(vec![3, 4])).unwrap();
+        builder = builder.aggregate(
+            vec![col("state")],
+            vec![min(col("salary")).alias("min_salary")],
+        )?;
+        builder = builder
+            .project(vec![col("state"), col("min_salary")])?
+            .limit(2, Some(10))?;
+        let _plan = builder.build()?;
+        //println!("{:?}", _plan);
+        Ok(())
+    }
+
+    #[test]
+    fn plan_builder_sort() -> Result<()> {
+        let mut builder =
+            test_table_scan("employee", &employee_schema(), Some(vec![3, 4])).unwrap();
+        builder = builder.sort(vec![
+            Expr::Sort(Sort {
+                expr: Box::new(col("state")),
+                asc: true,
+                nulls_first: true,
+            }),
+            Expr::Sort(Sort {
+                expr: Box::new(col("salary")),
+                asc: false,
+                nulls_first: false,
+            }),
+        ])?;
+        let _plan = builder.build()?;
+        //println!("{:?}", _plan);
+        Ok(())
+    }
+
+    #[test]
+    fn plan_builder_join() -> Result<()> {
+        let t2 = test_table_scan("t2", &employee_schema(), None)?.build()?;
+
+        // after the join op, the output schema will have both t1.id and t2.id
+        // after do projection with Expr::Wildcard, it will only pick t1.id
+        // this is implemented in expand_wildcard, which will detect using clause
+        let _plan = test_table_scan("t1", &employee_schema(), None)?
+            .join_using(t2, JoinType::Inner, vec!["id"])?
+            .project(vec![Expr::Wildcard])?
+            .build()?;
+
+        //println!("{:?}", _plan);
+        Ok(())
+    }
+
+    
 }

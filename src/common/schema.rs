@@ -32,6 +32,11 @@ impl Field {
     pub fn qualifier(&self) -> Option<&OwnedTableReference> {
         self.qualifier.as_ref()
     }
+    
+    pub fn set_qualifier(&mut self, qualifier: Option<OwnedTableReference>) {
+        self.qualifier = qualifier;
+    } 
+
     pub fn name(&self) -> &String {
         &self.name
     }

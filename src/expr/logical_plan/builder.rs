@@ -12,13 +12,13 @@ use crate::storage::Table;
 use super::LogicalPlan;
 use crate::common::column::Column;
 use crate::common::schema::Field;
+use crate::expr::expr_schema::exprlist_to_fields;
 use crate::expr::logical_plan::EmptyRelation;
 use crate::expr::logical_plan::Expr;
 use crate::expr::logical_plan::{Aggregate, Filter, Projection, TableScan};
 use crate::expr::logical_plan::{JoinType, Schema};
 use anyhow::{anyhow, Result};
 use std::collections::HashMap;
-use std::ptr::null;
 use std::sync::Arc;
 
 pub struct LogicalPlanBuilder {
@@ -57,11 +57,18 @@ impl LogicalPlanBuilder {
         }
         let schema = table_source.get_table();
         // in case projection is none, default will copy the fields and set qualifier
+        // in case projection is not None, note to add the qualifer here
         let projected_schema = projection
             .as_ref()
             .map(|p| {
                 Schema::new_with_metadata(
-                    p.iter().map(|i| schema.field(*i).clone()).collect(),
+                    p.iter()
+                        .map(|i| {
+                            let mut new_field = schema.field(*i).clone();
+                            new_field.set_qualifier(Some(table_name.clone()));
+                            new_field
+                        })
+                        .collect(),
                     schema.metadata().clone(),
                 )
             })
@@ -361,10 +368,23 @@ impl LogicalPlanBuilder {
         })))
     }
 
-    pub fn join_using(self, right: LogicalPlan, join_type: JoinType, using_keys: Vec<impl Into<Column> + Clone>) -> Result<Self> {
-        let left_keys: Vec<Column> = using_keys.clone().into_iter().map(|c|Self::normalize(&self.plan, c)).collect::<Result<_>>()?;
-        let right_keys: Vec<Column> = using_keys.clone().into_iter().map(|c|Self::normalize(&right, c)).collect::<Result<_>>()?;
-        let on: Vec<(_,_)> = left_keys.into_iter().zip(right_keys.into_iter()).collect();
+    pub fn join_using(
+        self,
+        right: LogicalPlan,
+        join_type: JoinType,
+        using_keys: Vec<impl Into<Column> + Clone>,
+    ) -> Result<Self> {
+        let left_keys: Vec<Column> = using_keys
+            .clone()
+            .into_iter()
+            .map(|c| Self::normalize(&self.plan, c))
+            .collect::<Result<_>>()?;
+        let right_keys: Vec<Column> = using_keys
+            .clone()
+            .into_iter()
+            .map(|c| Self::normalize(&right, c))
+            .collect::<Result<_>>()?;
+        let on: Vec<(_, _)> = left_keys.into_iter().zip(right_keys.into_iter()).collect();
         let join_schema = build_join_schema(
             self.plan.output_schema().as_ref(),
             right.output_schema().as_ref(),
@@ -372,9 +392,12 @@ impl LogicalPlanBuilder {
         )?;
         let mut join_on: Vec<(Expr, Expr)> = vec![];
         for (l, r) in &on {
-            if !self.plan.output_schema().has_column(l) || !right.output_schema().has_column(l) {
-                return Err(anyhow!(format!("join left column {} or right column{} is missing in respective schema", l,r)));
-            }else{
+            if !self.plan.output_schema().has_column(l) || !right.output_schema().has_column(r) {
+                return Err(anyhow!(format!(
+                    "join left column {} or right column {} is missing in respective schema",
+                    l, r
+                )));
+            } else {
                 join_on.push((Expr::Column(l.clone()), Expr::Column(r.clone())))
             }
         }
@@ -388,12 +411,15 @@ impl LogicalPlanBuilder {
             schema: Arc::new(join_schema),
             null_equals_null: false,
         })))
-
     }
 
     pub fn cross_join(self, right: LogicalPlan) -> Result<Self> {
         let schema = self.plan.output_schema().join(&right.output_schema())?;
-        Ok(Self::from(LogicalPlan::CrossJoin(super::CrossJoin { left: Arc::new(self.plan), right: Arc::new(right), schema: Arc::new(schema) })))
+        Ok(Self::from(LogicalPlan::CrossJoin(super::CrossJoin {
+            left: Arc::new(self.plan),
+            right: Arc::new(right),
+            schema: Arc::new(schema),
+        })))
     }
 }
 
@@ -417,10 +443,14 @@ pub fn project(
         }
     }
     validate_unique_names("Projections", projected_expr.iter())?;
+    let projected_schema = Schema::new_with_metadata(
+        exprlist_to_fields(&projected_expr, &plan)?,
+        plan.output_schema().metadata().clone(),
+    )?;
     Ok(LogicalPlan::Projection(Projection::try_new_with_schema(
         projected_expr,
         Arc::new(plan.clone()),
-        input_schema,
+        Arc::new(projected_schema),
     )?))
 }
 
