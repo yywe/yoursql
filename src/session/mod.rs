@@ -395,10 +395,10 @@ mod test {
         init_mem_testdb(&mut session)?;
         let sql = "SELECT A.id, A.name, B.score from testdb.student A inner join testdb.enroll B on A.id=B.student_id inner join testdb.course C on A.id=C.id where B.score > 99 order by B.score";
         let statement = parse(sql).unwrap();
-        let referred_tables = session.state.read().extract_table_references(&statement).unwrap();
-        //println!("referered tables: {:#?}", referred_tables);
-        let ans_plan = session.state.read().make_logical_plan(statement).await;
-        //println!("logical plan:{}", ans_plan);
+        let _referred_tables = session.state.read().extract_table_references(&statement).unwrap();
+        //println!("referered tables: {:#?}", _referred_tables);
+        let _ans_plan = session.state.read().make_logical_plan(statement).await;
+        //println!("logical plan:{}", _ans_plan);
         Ok(())
     }
 }
