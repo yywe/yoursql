@@ -1,8 +1,6 @@
-todo1: 
-
-Add SubqueryAlias in logical plan, which will be used in apply_table_alias
 
 todo2:
 
 do sql_to_expr, convert AST expr to expr. which is the basis.
+    will be used in plan_table_with_joins -> parse join
 

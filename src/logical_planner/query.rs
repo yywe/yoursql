@@ -1,8 +1,10 @@
 use super::{LogicalPlanner, PlannerContext, object_name_to_table_refernce};
 use crate::{expr::logical_plan::LogicalPlan, common::table_reference::OwnedTableReference};
 use anyhow::{anyhow, Result};
-use sqlparser::ast::{Query, Select, SetExpr, TableWithJoins, TableFactor, ObjectName, TableAlias};
+use sqlparser::ast::{Query, Ident,Select, SetExpr, TableWithJoins, TableFactor, ObjectName, TableAlias};
 use crate::expr::logical_plan::builder::LogicalPlanBuilder;
+use crate::expr::logical_plan::SubqueryAlias;
+use crate::expr::utils::col;
 
 impl<'a, C: PlannerContext> LogicalPlanner<'a, C> {
     pub fn plan_query(&self, query: Query) -> Result<LogicalPlan> {
@@ -79,7 +81,21 @@ impl<'a, C: PlannerContext> LogicalPlanner<'a, C> {
     }
 
     pub fn apply_table_alias(&self, plan: LogicalPlan, alias: TableAlias) -> Result<LogicalPlan> {
-        return Err(anyhow!(format!("todo")))
+        let apply_name_plan = LogicalPlan::SubqueryAlias(SubqueryAlias::try_new(plan, self.normalizer.normalize(alias.name))?);
+        self.apply_expr_alias(apply_name_plan, alias.columns)
+    }
+
+    pub fn apply_expr_alias(&self, plan: LogicalPlan, idents: Vec<Ident>) -> Result<LogicalPlan> {
+        if idents.is_empty() {
+            Ok(plan)
+        }else if idents.len() != plan.output_schema().fields().len() {
+            return Err(anyhow!(format!("source table has {} columns, but only {} names given alias", plan.output_schema().fields().len(), idents.len())))
+        }else{
+            let fields = plan.output_schema().fields().clone();
+            LogicalPlanBuilder::from(plan).project(fields.iter().zip(idents.into_iter()).map(|(field, ident)|{
+                col(field.name()).alias(self.normalizer.normalize(ident))
+            }))?.build()
+        }
     }
 
 
