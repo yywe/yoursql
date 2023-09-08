@@ -318,6 +318,15 @@ impl Schema {
         metadata.extend(schema.metadata.clone());
         Self::new_with_metadata(fields, metadata)
     }
+
+    pub fn field_with_name(&self, qualifier: Option<&TableReference>, name: &str) -> Result<&Field> {
+        if let Some(qualifier) = qualifier {
+            self.field_with_qualified_name(qualifier, name)
+        }else{
+            self.field_with_unqualified_name(name)
+        }
+    }
+    
 }
 
 impl Hash for Field {

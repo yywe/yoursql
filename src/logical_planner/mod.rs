@@ -2,6 +2,7 @@ pub mod utils;
 pub mod statement;
 pub mod query;
 pub mod mutation;
+pub mod plan_expr;
 
 use crate::{common::{table_reference::{TableReference, OwnedTableReference}, config::ConfigOptions}, storage::Table};
 use crate::logical_planner::utils::normalize_ident;
