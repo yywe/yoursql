@@ -7,7 +7,7 @@ use anyhow::{Result,anyhow};
 use std::collections::HashSet;
 use crate::expr::logical_plan::LogicalPlan;
 use crate::common::schema::Field;
-use crate::expr::logical_plan::{Projection,Filter, Aggregate, Sort,Join,Limit, TableScan};
+use crate::expr::logical_plan::{Projection,Filter, SubqueryAlias,Aggregate, Sort,Join,Limit, TableScan};
 use std::sync::Arc;
 use crate::common::tree_node::RewriteRecursion;
 use crate::expr::expr::{BinaryExpr, Operator};
@@ -172,7 +172,10 @@ pub fn from_plan(plan: &LogicalPlan, expr: &[Expr], inputs: &[LogicalPlan]) -> R
                 ..ts.clone()
             }))
         }
-        LogicalPlan::EmptyRelation(_)=>Ok(plan.clone())
+        LogicalPlan::EmptyRelation(_)=>Ok(plan.clone()),
+        LogicalPlan::SubqueryAlias(SubqueryAlias{alias,..})=>{
+            Ok(LogicalPlan::SubqueryAlias(SubqueryAlias::try_new(inputs[0].clone(), alias.clone())?))
+        }
     }
 }
 
