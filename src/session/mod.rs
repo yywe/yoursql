@@ -224,7 +224,7 @@ impl Default for SessionContext {
 
 
 #[cfg(test)]
-mod test {
+pub mod test {
     use super::*;
     use crate::common::record_batch::RecordBatch;
     use crate::common::types::DataType;
@@ -239,7 +239,7 @@ mod test {
     use futures::StreamExt;
     use std::collections::HashMap;
 
-    fn init_mem_testdb(session: &mut SessionContext) -> Result<()> {
+    pub fn init_mem_testdb(session: &mut SessionContext) -> Result<()> {
         let test_database = MemoryDB::new();
         session.register_database("testdb", Arc::new(test_database));
         // first table: student
