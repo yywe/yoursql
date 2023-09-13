@@ -1,16 +1,21 @@
 use super::{object_name_to_table_refernce, LogicalPlanner, PlannerContext};
 use crate::common::column::Column;
+use crate::expr::expr_rewriter::normalize_col_with_schemas_and_ambiguity_check;
 use crate::expr::logical_plan::builder::LogicalPlanBuilder;
+use crate::expr::logical_plan::Filter;
 use crate::expr::logical_plan::JoinType;
 use crate::expr::logical_plan::SubqueryAlias;
 use crate::expr::utils::col;
+use crate::expr::utils::extract_columns_from_expr;
 use crate::{common::table_reference::OwnedTableReference, expr::logical_plan::LogicalPlan};
 use anyhow::{anyhow, Result};
+use sqlparser::ast::Expr as SQLExpr;
 use sqlparser::ast::{
-    Ident, ObjectName, Query, Select, SetExpr, TableAlias, TableFactor, TableWithJoins,
+    Ident, ObjectName, Query, Select, SelectItem, SetExpr, TableAlias, TableFactor, TableWithJoins,
 };
 use sqlparser::ast::{Join, JoinConstraint};
 use std::collections::HashSet;
+use std::sync::Arc;
 
 impl<'a, C: PlannerContext> LogicalPlanner<'a, C> {
     pub fn plan_query(&self, query: Query) -> Result<LogicalPlan> {
@@ -38,9 +43,42 @@ impl<'a, C: PlannerContext> LogicalPlanner<'a, C> {
             return Err(anyhow!("not supported select feature"));
         }
         let plan = self.plan_from_tables(select.from)?;
+        let empty_from = matches!(plan, LogicalPlan::EmptyRelation(_));
+        let plan = self.plan_selection(select.selection, plan)?;
         Ok(plan)
     }
 
+    pub fn plan_selection(
+        &self,
+        selection: Option<SQLExpr>,
+        plan: LogicalPlan,
+    ) -> Result<LogicalPlan> {
+        match selection {
+            Some(predicate) => {
+                let fallback_schemas = plan.fallback_normalize_schemas();
+                let fallback_schemas = fallback_schemas.iter().collect::<Vec<_>>(); // convert to vec of borrow for later use
+                let filter_expr =
+                    self.sql_expr_to_logical_expr(predicate, plan.output_schema().as_ref())?;
+                // normalize the Column in filter expr
+                // however, why here extract all columns as using columns
+                let mut using_columns = HashSet::new();
+                extract_columns_from_expr(&filter_expr, &mut using_columns)?;
+                let filter_expr = normalize_col_with_schemas_and_ambiguity_check(
+                    filter_expr,
+                    &[&[plan.output_schema().as_ref()], &fallback_schemas],
+                    &[using_columns],
+                )?;
+                // now create filter plan using normalized filter expr
+                Ok(LogicalPlan::Filter(Filter::try_new(
+                    filter_expr,
+                    Arc::new(plan),
+                )?))
+            }
+            None => Ok(plan),
+        }
+    }
+
+    /// plan from clause
     pub fn plan_from_tables(&self, mut from: Vec<TableWithJoins>) -> Result<LogicalPlan> {
         match from.len() {
             0 => Ok(LogicalPlanBuilder::empty(true).build()?),
@@ -212,14 +250,16 @@ impl<'a, C: PlannerContext> LogicalPlanner<'a, C> {
                 .build()
         }
     }
+
+
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::session::SessionContext;
-    use crate::session::test::init_mem_testdb;
     use crate::parser::parse;
+    use crate::session::test::init_mem_testdb;
+    use crate::session::SessionContext;
     #[tokio::test]
     async fn test_plan_select() -> Result<()> {
         let mut session = SessionContext::default();
