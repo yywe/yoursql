@@ -230,3 +230,36 @@ pub fn extract_columns_from_expr(expr: &Expr, acc: &mut HashSet<Column>) -> Resu
         Ok(())
     })
 }
+
+pub fn find_exprs_in_expr<F>(expr: &Expr, test_fn: &F) -> Vec<Expr>
+where F: Fn(&Expr)->bool {
+    let mut exprs = vec![];
+    expr.apply(&mut |expr|{
+        if test_fn(expr){
+            if !(exprs.contains(expr)) {
+                exprs.push(expr.clone())
+            }
+            // once find  match stop recursing down the curernt node, why???
+            return Ok(VisitRecursion::Skip);
+        }
+        Ok(VisitRecursion::Continue)
+    }).expect("no way to return error during recursion");
+    exprs
+}
+
+
+pub fn find_exprs_in_exprs<F>(exprs: &[Expr], test_fn: &F) -> Vec<Expr>
+where F: Fn(&Expr)->bool {
+    exprs.iter().flat_map(|expr|find_exprs_in_expr(expr,test_fn)).fold(vec![], |mut acc, expr|{
+        if !acc.contains(&expr){
+            acc.push(expr)
+        }
+        acc
+    })
+}
+
+pub fn find_aggregate_exprs(exprs: &[Expr])-> Vec<Expr> {
+    find_exprs_in_exprs(exprs, &|nested_expr|{
+        matches!(nested_expr, Expr::AggregateFunction{..})
+    })
+}

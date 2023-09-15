@@ -308,6 +308,10 @@ impl Schema {
             .collect()
     }
 
+    pub fn all_fields(&self)->Vec<&Field> {
+        self.fields.iter().map(|f|&(**f)).collect()
+    }
+
     pub fn field_with_unqualified_name(&self, name: &str) -> Result<&Field> {
         let matches = self.fields_with_unqualified_name(name);
         match matches.len() {

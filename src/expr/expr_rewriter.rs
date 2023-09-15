@@ -271,6 +271,20 @@ pub fn resolve_alias_to_exprs(expr: &Expr, aliases: &HashMap<String, Expr>) -> R
         _ => Ok(None),
     })
 }
+
+pub fn resolve_columns(expr: &Expr, plan: &LogicalPlan) -> Result<Expr> {
+    clone_with_replacement(expr, &|e|{
+        match e {
+            Expr::Column(col) => {
+                let s = plan.output_schema();
+                let field = s.field_from_column(col)?;
+                Ok(Some(Expr::Column(field.qualified_column())))
+            }
+            _=>Ok(None)
+        }
+    })
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
