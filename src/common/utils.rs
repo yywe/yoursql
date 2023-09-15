@@ -2,6 +2,8 @@ use anyhow::Result;
 use sqlparser::ast::Ident;
 use sqlparser::dialect::GenericDialect;
 use sqlparser::parser::Parser;
+use std::collections::HashMap;
+use crate::expr::expr::Expr;
 
 pub(crate) fn parse_identiiers(s: &str) -> Result<Vec<Ident>> {
     let dialect = GenericDialect;
@@ -19,4 +21,13 @@ pub(crate) fn parse_identifiers_normalized(s: &str) -> Vec<String> {
             None => ident.value.to_ascii_lowercase(),
         })
         .collect::<Vec<_>>()
+}
+
+pub fn extract_aliases(exprs: &[Expr]) -> HashMap<String, Expr> {
+    exprs.iter().filter_map(|expr| match expr {
+        Expr::Alias(nested_expr, alias_name) => {
+            Some((alias_name.clone(), *nested_expr.clone()))
+        }
+        _=>None
+    }).collect::<HashMap<String, Expr>>()
 }

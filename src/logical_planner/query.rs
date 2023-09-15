@@ -1,12 +1,20 @@
 use super::{object_name_to_table_refernce, LogicalPlanner, PlannerContext};
 use crate::common::column::Column;
+use crate::common::schema::Schema;
+use crate::common::utils::extract_aliases;
+use crate::common::table_reference::TableReference;
 use crate::expr::expr_rewriter::normalize_col_with_schemas_and_ambiguity_check;
 use crate::expr::logical_plan::builder::LogicalPlanBuilder;
 use crate::expr::logical_plan::Filter;
+use crate::expr::expr::Expr;
 use crate::expr::logical_plan::JoinType;
 use crate::expr::logical_plan::SubqueryAlias;
 use crate::expr::utils::col;
 use crate::expr::utils::extract_columns_from_expr;
+use crate::expr::utils::find_column_exprs;
+use crate::expr::expr_rewriter::resolve_alias_to_exprs;
+use crate::expr::expr_rewriter::normalize_col;
+
 use crate::{common::table_reference::OwnedTableReference, expr::logical_plan::LogicalPlan};
 use anyhow::{anyhow, Result};
 use sqlparser::ast::Expr as SQLExpr;
@@ -42,9 +50,44 @@ impl<'a, C: PlannerContext> LogicalPlanner<'a, C> {
         {
             return Err(anyhow!("not supported select feature"));
         }
+        // first get data, i.e, table scan
         let plan = self.plan_from_tables(select.from)?;
         let empty_from = matches!(plan, LogicalPlan::EmptyRelation(_));
+
+        // next do filter
         let plan = self.plan_selection(select.selection, plan)?;
+
+        // now get the original select expressions (projection, may contain aggregation expressions)
+        let select_exprs = self.select_items_to_exprs(&plan, select.projection, empty_from)?;
+
+        // next do a projection, note this is just a temp projection, in order to extract the output schema, which may be
+        // used in having or group by, the combined schema will have all the exprs, including alias
+        let projected_plan = self.project(plan.clone(), select_exprs.clone())?;
+        let mut combined_schema = (*projected_plan.output_schema()).clone();
+        combined_schema=combined_schema.merge(plan.output_schema().as_ref())?;
+
+        // extract alias map, later used to convert alias back to expr in having expression
+        let alias_map  = extract_aliases(&select_exprs);
+        
+        // next we convert the having from AST expr to logical expr
+        let having_expr = select.having.map(|expr|{
+            // first we use combined schema as the having may have alias from projection
+            // after this step, the expr may refer alias
+            let expr = self.sql_expr_to_logical_expr(expr, &combined_schema)?;
+            // now we rewrite the expr by convert alias back to original expr based on alias map
+            let expr = resolve_alias_to_exprs(&expr, &alias_map)?;
+            // lastly, normlize the expression based on projected plan
+            normalize_col(expr, &projected_plan)
+        }).transpose()?;
+
+
+        // next should do aggegration
+        // when do 
+
+
+
+        // lastly do projection
+        
         Ok(plan)
     }
 
@@ -250,6 +293,84 @@ impl<'a, C: PlannerContext> LogicalPlanner<'a, C> {
                 .build()
         }
     }
+
+    /// convert the select items into a vec of exprs
+    fn select_items_to_exprs(&self, plan: &LogicalPlan, projection: Vec<SelectItem>, empty_from: bool) -> Result<Vec<Expr>> {
+        projection.into_iter().map(|select_item|self.select_item_to_expr(select_item, plan, empty_from)).flat_map(|result|{
+            match result {
+                Ok(vec) => vec.into_iter().map(Ok).collect(),
+                Err(err) => vec![Err(err)]
+            }
+        }).collect::<Result<Vec<Expr>>>()
+    }
+
+    /// convert a single select item into expr(s), include wildcard expansion
+    fn select_item_to_expr(&self,  select_item: SelectItem, plan: &LogicalPlan, empty_from: bool) -> Result<Vec<Expr>> {
+        let schema = plan.output_schema();
+        match select_item {
+            SelectItem::UnnamedExpr(expr) => {
+                let expr = self.sql_expr_to_logical_expr(expr, plan.output_schema().as_ref())?;
+                let col = normalize_col_with_schemas_and_ambiguity_check(expr, &[&[plan.output_schema().as_ref()]], &plan.using_columns()?)?;
+                Ok(vec![col])
+            }
+            SelectItem::ExprWithAlias { expr, alias } => {
+                let expr = self.sql_expr_to_logical_expr(expr, plan.output_schema().as_ref())?;
+                let col = normalize_col_with_schemas_and_ambiguity_check(expr, &[&[plan.output_schema().as_ref()]], &plan.using_columns()?)?;
+                let expr = Expr::Alias(Box::new(col), self.normalizer.normalize(alias));
+                Ok(vec![expr])
+            }
+            // wildcard expansion, here options of wildcard will not be supported
+            SelectItem::Wildcard(_options) => {
+                if empty_from {
+                    return Err(anyhow!("select * with no tables specified is not valid"))
+                }
+                let using_columns = plan.using_columns()?;
+                let columns_to_skip = using_columns.into_iter().flat_map(|cols|{
+                    let mut cols = cols.into_iter().collect::<Vec<_>>();
+                    cols.sort();
+                    let mut out_column_names: HashSet<String> = HashSet::new();
+                    cols.into_iter().filter_map(|c|{
+                        if out_column_names.contains(&c.name) {
+                            Some(c)
+                        }else{
+                            out_column_names.insert(c.name);
+                            None
+                        }
+                    }).collect::<Vec<_>>()
+                }).collect::<HashSet<_>>();
+                
+                let exprs = if columns_to_skip.is_empty() {
+                    schema.fields().iter().map(|f|Expr::Column(f.qualified_column())).collect::<Vec<Expr>>()
+                }else{
+                    schema.fields().iter().filter_map(|f|{
+                        let col = f.qualified_column();
+                        if !columns_to_skip.contains(&col) {
+                            Some(Expr::Column(col))
+                        }else{
+                            None
+                        }
+                    }).collect::<Vec<Expr>>()
+                };
+                Ok(exprs)
+            }
+            SelectItem::QualifiedWildcard(ref object_name, _options)=>{
+                let qualifier = format!("{object_name}");
+                let qualifier = TableReference::from(qualifier);
+                let qualified_fields = schema.fields_with_qualifed(&qualifier).into_iter().cloned().collect::<Vec<_>>();
+                if qualified_fields.is_empty() {
+                    return Err(anyhow!(format!("Invalid qualifier {qualifier}")))
+                }
+                let qualified_schema = Schema::new_with_metadata(qualified_fields, schema.metadata().clone())?;
+                Ok(qualified_schema.fields().iter().map(|f|Expr::Column(f.qualified_column())).collect::<Vec<Expr>>())
+            }
+        }
+    }
+
+    fn project(&self, input: LogicalPlan, exprs: Vec<Expr>) -> Result<LogicalPlan> {
+        self.validate_schema_satisfies_exprs(input.output_schema().as_ref(), &exprs)?;
+        LogicalPlanBuilder::from(input).project(exprs)?.build()
+    }
+
 
 
 }

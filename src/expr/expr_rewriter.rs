@@ -1,13 +1,14 @@
+use super::expr::{AggregateFunction, Between, BinaryExpr, Like, Sort};
 use super::expr_schema::ExprToSchema;
 use super::logical_plan::builder::LogicalPlanBuilder;
 use crate::common::column::Column;
+use crate::common::schema::Schema;
 use crate::common::tree_node::Transformed;
 use crate::common::tree_node::TreeNode;
 use crate::expr::expr::Expr;
-use crate::expr::expr::Sort;
 use crate::expr::logical_plan::LogicalPlan;
 use anyhow::Result;
-use crate::common::schema::Schema;
+use std::collections::HashMap;
 use std::collections::HashSet;
 
 pub fn normalize_col(expr: Expr, plan: &LogicalPlan) -> Result<Expr> {
@@ -126,20 +127,150 @@ fn expr_match(needle: &Expr, haystack: &Expr) -> bool {
     }
 }
 
-
-pub fn normalize_col_with_schemas_and_ambiguity_check(expr: Expr, schemas: &[&[&Schema]], using_columns: &[HashSet<Column>]) -> Result<Expr> {
-    expr.transform(&|expr|{
+pub fn normalize_col_with_schemas_and_ambiguity_check(
+    expr: Expr,
+    schemas: &[&[&Schema]],
+    using_columns: &[HashSet<Column>],
+) -> Result<Expr> {
+    expr.transform(&|expr| {
         Ok({
             if let Expr::Column(c) = expr {
                 let col = c.normalize_with_schemas_and_ambiguity_check(schemas, using_columns)?;
                 Transformed::Yes(Expr::Column(col))
-            }else{
+            } else {
                 Transformed::No(expr)
             }
         })
     })
 }
 
+/// clone the expr, but rewrite it if condition satsify, i.e, if replacement_fn return some expr
+/// recursive implementation
+pub fn clone_with_replacement<F>(expr: &Expr, replacement_fn: &F) -> Result<Expr>
+where
+    F: Fn(&Expr) -> Result<Option<Expr>>,
+{
+    let replacement_opt = replacement_fn(expr)?;
+    match replacement_opt {
+        // recursion break case, where the replacement_fn already replaced. use the replacement
+        Some(replacement) => Ok(replacement),
+        // not replaced yet, look nested expr and recursion
+        None => match expr {
+            Expr::AggregateFunction(AggregateFunction {
+                fun,
+                args,
+                distinct,
+                filter,
+                order_by,
+            }) => Ok(Expr::AggregateFunction(AggregateFunction {
+                fun: fun.clone(),
+                args: args
+                    .iter()
+                    .map(|e| clone_with_replacement(e, replacement_fn))
+                    .collect::<Result<Vec<Expr>>>()?,
+                distinct: *distinct,
+                filter: filter.clone(),
+                order_by: order_by.clone(),
+            })),
+            Expr::Alias(e, alias_name) => Ok(Expr::Alias(
+                Box::new(clone_with_replacement(e, replacement_fn)?),
+                alias_name.clone(),
+            )),
+            Expr::Between(Between {
+                expr,
+                negated,
+                low,
+                high,
+            }) => Ok(Expr::Between(Between {
+                expr: Box::new(clone_with_replacement(expr, replacement_fn)?),
+                negated: *negated,
+                low: Box::new(clone_with_replacement(low, replacement_fn)?),
+                high: Box::new(clone_with_replacement(high, replacement_fn)?),
+            })),
+            Expr::BinaryExpr(BinaryExpr { left, right, op }) => Ok(Expr::BinaryExpr(BinaryExpr {
+                left: Box::new(clone_with_replacement(left, replacement_fn)?),
+                op: *op,
+                right: Box::new(clone_with_replacement(right, replacement_fn)?),
+            })),
+            Expr::Like(Like {
+                negated,
+                expr,
+                pattern,
+                escape_char,
+            }) => Ok(Expr::Like(Like {
+                negated: *negated,
+                expr: Box::new(clone_with_replacement(expr, replacement_fn)?),
+                pattern: Box::new(clone_with_replacement(pattern, replacement_fn)?),
+                escape_char: *escape_char,
+            })),
+            Expr::ILike(Like {
+                negated,
+                expr,
+                pattern,
+                escape_char,
+            }) => Ok(Expr::ILike(Like {
+                negated: *negated,
+                expr: Box::new(clone_with_replacement(expr, replacement_fn)?),
+                pattern: Box::new(clone_with_replacement(pattern, replacement_fn)?),
+                escape_char: *escape_char,
+            })),
+            Expr::Not(e) => Ok(Expr::Not(Box::new(clone_with_replacement(
+                e,
+                replacement_fn,
+            )?))),
+            Expr::IsNull(e) => Ok(Expr::IsNull(Box::new(clone_with_replacement(
+                e,
+                replacement_fn,
+            )?))),
+            Expr::IsNotNull(e) => Ok(Expr::IsNotNull(Box::new(clone_with_replacement(
+                e,
+                replacement_fn,
+            )?))),
+            Expr::IsTrue(e) => Ok(Expr::IsTrue(Box::new(clone_with_replacement(
+                e,
+                replacement_fn,
+            )?))),
+            Expr::IsNotTrue(e) => Ok(Expr::IsNotTrue(Box::new(clone_with_replacement(
+                e,
+                replacement_fn,
+            )?))),
+            Expr::IsFalse(e) => Ok(Expr::IsFalse(Box::new(clone_with_replacement(
+                e,
+                replacement_fn,
+            )?))),
+            Expr::IsNotFalse(e) => Ok(Expr::IsNotFalse(Box::new(clone_with_replacement(
+                e,
+                replacement_fn,
+            )?))),
+            Expr::Sort(Sort {
+                expr: nested_expr,
+                asc,
+                nulls_first,
+            }) => Ok(Expr::Sort(Sort {
+                expr: Box::new(clone_with_replacement(nested_expr, replacement_fn)?),
+                asc: *asc,
+                nulls_first: *nulls_first,
+            })),
+            Expr::Column { .. } | Expr::Literal(_) => Ok(expr.clone()),
+            Expr::Wildcard => Ok(Expr::Wildcard),
+            Expr::QualifiedWildcard { .. } => Ok(expr.clone()),
+        },
+    }
+}
+
+/// rebuild an Expr with columns that refer to aliases replace by underlying expr
+pub fn resolve_alias_to_exprs(expr: &Expr, aliases: &HashMap<String, Expr>) -> Result<Expr> {
+    clone_with_replacement(expr, &|e| match e {
+        Expr::Column(c) if c.relation.is_none() => {
+            if let Some(aliased_expr) = aliases.get(&c.name) {
+                Ok(Some(aliased_expr.clone()))
+            } else {
+                Ok(None)
+            }
+        }
+        _ => Ok(None),
+    })
+}
 #[cfg(test)]
 mod test {
     use super::*;

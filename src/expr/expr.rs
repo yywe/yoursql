@@ -152,7 +152,7 @@ impl std::fmt::Display for BinaryExpr {
     }
 }
 
-#[derive(Debug, Clone, Hash, Eq, PartialEq)]
+#[derive(Debug, Clone, Copy, Hash, Eq, PartialEq)]
 pub enum Operator {
     Eq,
     NotEq,

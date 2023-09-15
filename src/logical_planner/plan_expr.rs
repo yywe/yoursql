@@ -363,7 +363,7 @@ impl<'a, C: PlannerContext> LogicalPlanner<'a, C> {
         }
     }
 
-    fn validate_schema_satisfies_exprs(&self, schema: &Schema, exprs: &[Expr]) -> Result<()> {
+    pub fn validate_schema_satisfies_exprs(&self, schema: &Schema, exprs: &[Expr]) -> Result<()> {
         let exprs: Vec<Expr> = exprs
             .iter()
             .flat_map(find_columns_referred_by_expr)
