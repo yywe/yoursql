@@ -556,7 +556,14 @@ mod test {
     async fn test_plan_select() -> Result<()> {
         let mut session = SessionContext::default();
         init_mem_testdb(&mut session)?;
+        // the case of join
         let sql = "SELECT A.id, A.name, B.score from testdb.student A inner join testdb.enroll B on A.id=B.student_id inner join testdb.course C on A.id=C.id where B.score > 99 order by B.score";
+        let statement = parse(sql).unwrap();
+        let _plan = session.state.read().make_logical_plan(statement).await?;
+        //println!("{:?}", _plan);
+
+        // the case of aggregation
+        let sql = "SELECT max(age)+100, address from testdb.student where id<100 group by address having max(age)<20";
         let statement = parse(sql).unwrap();
         let _plan = session.state.read().make_logical_plan(statement).await?;
         //println!("{:?}", _plan);
