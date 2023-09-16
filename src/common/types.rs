@@ -149,18 +149,18 @@ impl std::fmt::Debug for DataValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             DataValue::Null =>  write!(f, "NULL"),
-            DataValue::Boolean(e)=>write!(f,"Boolean({self})"),
-            DataValue::Float32(e) =>write!(f,"Float32({self})"),
-            DataValue::Float64(e) => write!(f,"Float64({self})"),
-            DataValue::Int8(e) => write!(f,"Int8({self})"),
-            DataValue::Int16(e) => write!(f,"Int16({self})"),
-            DataValue::Int32(e) => write!(f,"Int32({self})"),
-            DataValue::Int64(e) => write!(f,"Int64({self})"),
-            DataValue::UInt8(e) => write!(f,"Uint8({self})"),
-            DataValue::UInt16(e) => write!(f,"Uint16({self})"),
-            DataValue::UInt32(e) =>write!(f,"Uint32({self})"),
-            DataValue::UInt64(e) => write!(f,"Uint64({self})"),
-            DataValue::Utf8(e) => write!(f,"Utf8({self})"),
+            DataValue::Boolean(_)=>write!(f,"Boolean({self})"),
+            DataValue::Float32(_) =>write!(f,"Float32({self})"),
+            DataValue::Float64(_) => write!(f,"Float64({self})"),
+            DataValue::Int8(_) => write!(f,"Int8({self})"),
+            DataValue::Int16(_) => write!(f,"Int16({self})"),
+            DataValue::Int32(_) => write!(f,"Int32({self})"),
+            DataValue::Int64(_) => write!(f,"Int64({self})"),
+            DataValue::UInt8(_) => write!(f,"Uint8({self})"),
+            DataValue::UInt16(_) => write!(f,"Uint16({self})"),
+            DataValue::UInt32(_) =>write!(f,"Uint32({self})"),
+            DataValue::UInt64(_) => write!(f,"Uint64({self})"),
+            DataValue::Utf8(_) => write!(f,"Utf8({self})"),
             DataValue::Binary(e) => match e {
                 Some(_) => write!(f, "Binary(\"{self}\")"),
                 None=>write!(f,"Binary{self}"),
@@ -170,9 +170,9 @@ impl std::fmt::Debug for DataValue {
             DataValue::Time32Second(_) => write!(f, "Time32Second(\"{self}\")"),
             DataValue::Time32Millisecond(_) => write!(f, "Time32Millisecond(\"{self}\")"),
 
-            DataValue::Time64Microsecond(e) => write!(f, "Time64Microsecond(\"{self}\")"),
+            DataValue::Time64Microsecond(_) => write!(f, "Time64Microsecond(\"{self}\")"),
 
-            DataValue::Time64Nanosecond(e) =>  write!(f, "Time64Nanosecond(\"{self}\")"),
+            DataValue::Time64Nanosecond(_) =>  write!(f, "Time64Nanosecond(\"{self}\")"),
         }
     }
 }

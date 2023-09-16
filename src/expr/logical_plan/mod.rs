@@ -31,6 +31,7 @@ pub enum LogicalPlan {
     TableScan(TableScan),
     EmptyRelation(EmptyRelation),
     Limit(Limit),
+    SubqueryAlias(SubqueryAlias),
 }
 
 #[derive(Clone, PartialEq, Eq, Hash)]
@@ -151,6 +152,21 @@ pub struct Limit {
     pub input: Arc<LogicalPlan>,
 }
 
+#[derive(Clone, PartialEq, Eq, Hash)]
+pub struct SubqueryAlias {
+    pub input: Arc<LogicalPlan>,
+    pub alias: OwnedTableReference,
+    pub schema: SchemaRef,
+}
+
+impl SubqueryAlias{
+    pub fn try_new(plan: LogicalPlan, alias: impl Into<OwnedTableReference>) -> Result<Self> {
+        let alias = alias.into();
+        let schema: Schema = plan.output_schema().as_ref().clone().into();
+        let schema = SchemaRef::new(Schema::try_from_qualified_schema(&alias, &schema)?);
+        Ok(SubqueryAlias { input: Arc::new(plan), alias: alias , schema: schema})
+    }
+}
 impl LogicalPlan {
     /// get the output schema from this logical plan node
     pub fn output_schema(&self) -> SchemaRef {
@@ -166,6 +182,7 @@ impl LogicalPlan {
             LogicalPlan::CrossJoin(CrossJoin { schema, .. }) => schema.clone(),
             LogicalPlan::Limit(Limit { input, .. }) => input.output_schema(),
             LogicalPlan::Projection(Projection { schema, .. }) => schema.clone(),
+            LogicalPlan::SubqueryAlias(SubqueryAlias{schema,..}) => schema.clone(),
         }
     }
 
@@ -180,6 +197,7 @@ impl LogicalPlan {
             LogicalPlan::CrossJoin(CrossJoin { left, right, .. }) => vec![left, right],
             LogicalPlan::Limit(Limit { input, .. }) => vec![input],
             LogicalPlan::TableScan { .. } | LogicalPlan::EmptyRelation { .. } => vec![],
+            LogicalPlan::SubqueryAlias(SubqueryAlias{input,..}) => vec![input],
         }
     }
 
@@ -302,6 +320,9 @@ impl LogicalPlan {
                             fetch.map_or_else(|| "None".to_string(), |x| x.to_string())
                         )
                     }
+                    LogicalPlan::SubqueryAlias(SubqueryAlias{ref alias,..})=>{
+                        write!(f, "SubqueryAlias: {alias}")
+                    }
                 }
             }
         }
@@ -382,7 +403,7 @@ impl LogicalPlan {
             }
             LogicalPlan::Sort(Sort { expr, .. }) => expr.iter().try_for_each(f),
             LogicalPlan::TableScan(TableScan { filters, .. }) => filters.iter().try_for_each(f),
-            LogicalPlan::EmptyRelation(_) | LogicalPlan::Limit(_) | LogicalPlan::CrossJoin(_) => {
+            LogicalPlan::EmptyRelation(_) | LogicalPlan::Limit(_) | LogicalPlan::CrossJoin(_)|LogicalPlan::SubqueryAlias(_) => {
                 Ok(())
             }
         }

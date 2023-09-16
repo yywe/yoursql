@@ -224,7 +224,7 @@ impl Default for SessionContext {
 
 
 #[cfg(test)]
-mod test {
+pub mod test {
     use super::*;
     use crate::common::record_batch::RecordBatch;
     use crate::common::types::DataType;
@@ -239,7 +239,7 @@ mod test {
     use futures::StreamExt;
     use std::collections::HashMap;
 
-    fn init_mem_testdb(session: &mut SessionContext) -> Result<()> {
+    pub fn init_mem_testdb(session: &mut SessionContext) -> Result<()> {
         let test_database = MemoryDB::new();
         session.register_database("testdb", Arc::new(test_database));
         // first table: student
@@ -395,10 +395,10 @@ mod test {
         init_mem_testdb(&mut session)?;
         let sql = "SELECT A.id, A.name, B.score from testdb.student A inner join testdb.enroll B on A.id=B.student_id inner join testdb.course C on A.id=C.id where B.score > 99 order by B.score";
         let statement = parse(sql).unwrap();
-        let referred_tables = session.state.read().extract_table_references(&statement).unwrap();
-        //println!("referered tables: {:#?}", referred_tables);
-        let ans_plan = session.state.read().make_logical_plan(statement).await;
-        //println!("logical plan:{}", ans_plan);
+        let _referred_tables = session.state.read().extract_table_references(&statement).unwrap();
+        //println!("referered tables: {:#?}", _referred_tables);
+        let _ans_plan = session.state.read().make_logical_plan(statement).await;
+        //println!("logical plan:{}", _ans_plan);
         Ok(())
     }
 }

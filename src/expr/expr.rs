@@ -55,6 +55,20 @@ pub enum AggregateFunctionType {
     Avg,
 }
 
+impl std::str::FromStr for AggregateFunctionType {
+    type Err = anyhow::Error;
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        Ok(match s {
+            "count"=>AggregateFunctionType::Count,
+            "sum" => AggregateFunctionType::Sum,
+            "min" => AggregateFunctionType::Min,
+            "max" => AggregateFunctionType::Max,
+            "avg" => AggregateFunctionType::Avg,
+            _=>return Err(anyhow!("unsupported function name {}",s)),
+        })
+    }
+}
+
 #[derive(Debug, Clone, Hash, Eq, PartialEq)]
 pub struct Sort {
     pub expr: Box<Expr>,
@@ -138,7 +152,7 @@ impl std::fmt::Display for BinaryExpr {
     }
 }
 
-#[derive(Debug, Clone, Hash, Eq, PartialEq)]
+#[derive(Debug, Clone, Copy, Hash, Eq, PartialEq)]
 pub enum Operator {
     Eq,
     NotEq,

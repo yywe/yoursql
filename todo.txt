@@ -1,13 +1,6 @@
-read the logical_plan folder under expr, and do make_logical_plan.
 
-refactor test code in session/mod.rs, prepare imple in-memory test database uinsg a  func, so later test, we do not need repeat code
+todo2:
 
-at least 2 tables;
-
-
-finalize expression and other utils
-
-1.define the set of logical plans
-2. impl plan_query
-3. impl display for logical plan
+do sql_to_expr, convert AST expr to expr. which is the basis.
+    will be used in plan_table_with_joins -> parse join
 

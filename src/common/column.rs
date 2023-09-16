@@ -1,6 +1,6 @@
 use super::{table_reference::OwnedTableReference, utils::parse_identifiers_normalized};
 use crate::common::schema::Schema;
-use std::{collections::HashSet};
+use std::collections::HashSet;
 use anyhow::{Result,anyhow};
 
 #[derive(Debug, Clone,Hash, Eq, Ord,PartialOrd, PartialEq)]
