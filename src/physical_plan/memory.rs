@@ -8,6 +8,7 @@ use futures::Stream;
 use std::any::Any;
 use std::pin::Pin;
 use std::task::{Context, Poll};
+use std::sync::Arc;
 
 #[derive(Debug)]
 pub struct MemoryExec {
@@ -16,7 +17,7 @@ pub struct MemoryExec {
 
     // note here the header is projected, while the data/header stored in RecordBatch is not yet
     // the data will be projected when do the execution
-    projected_header: Fields,
+    projected_table: SchemaRef,
     projection_indices: Option<Vec<usize>>,
 }
 
@@ -26,14 +27,14 @@ impl MemoryExec {
         data: Vec<RecordBatch>,
         projection: Option<Vec<usize>>,
     ) -> Result<Self> {
-        let projected_header = match projection.clone() {
-            Some(indices) => table.fields.project(&indices)?,
-            None => table.fields.clone(),
+        let projected_table = match projection.clone() {
+            Some(indices) => Arc::new(table.project(&indices)?),
+            None => table.clone(),
         };
         Ok(Self {
             table: table,
             batches: data,
-            projected_header: projected_header,
+            projected_table: projected_table,
             projection_indices: projection,
         })
     }
@@ -42,13 +43,13 @@ impl ExecutionPlan for MemoryExec {
     fn as_any(&self) -> &dyn Any {
         self
     }
-    fn header(&self) -> Fields {
-        self.projected_header.clone()
+    fn schema(&self) -> SchemaRef {
+        self.projected_table.clone()
     }
     fn execute(&self) -> Result<SendableRecordBatchStream> {
         Ok(Box::pin(MemoryStream::try_new(
             self.batches.clone(),
-            self.header(),
+            self.projected_table.clone(),
             self.projection_indices.clone(),
         )?))
     }
@@ -57,7 +58,7 @@ impl ExecutionPlan for MemoryExec {
 /// again in MemoryStream, the header is the final/projected header, while data is not projected yet
 pub struct MemoryStream {
     data: Vec<RecordBatch>,
-    header: Fields,
+    schema: SchemaRef,
     projection: Option<Vec<usize>>,
     index: usize,
 }
@@ -65,12 +66,12 @@ pub struct MemoryStream {
 impl MemoryStream {
     pub fn try_new(
         data: Vec<RecordBatch>,
-        header: Fields,
+        schema: SchemaRef,
         projection: Option<Vec<usize>>,
     ) -> Result<Self> {
         Ok(Self {
             data,
-            header,
+            schema,
             projection,
             index: 0,
         })
@@ -95,7 +96,7 @@ impl Stream for MemoryStream {
 }
 
 impl RecordBatchStream for MemoryStream {
-    fn header(&self) -> Fields {
-        self.header.clone()
+    fn schema(&self) -> SchemaRef {
+        self.schema.clone()
     }
 }
