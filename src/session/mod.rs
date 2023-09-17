@@ -8,6 +8,8 @@ use crate::common::table_reference::ResolvedTableReference;
 use crate::common::table_reference::TableReference;
 use crate::logical_planner::ParserOptions;
 use crate::logical_planner::object_name_to_table_refernce;
+use crate::physical_planner::DefaultPhysicalPlanner;
+use crate::physical_planner::PhysicalPlanner;
 use crate::storage::Table;
 use crate::expr::logical_plan::LogicalPlan;
 use crate::logical_planner::PlannerContext;
@@ -15,12 +17,15 @@ use crate::logical_planner::LogicalPlanner;
 use anyhow::Context;
 use anyhow::Result;
 use chrono::{DateTime, Utc};
+use futures::TryStreamExt;
 use parking_lot::RwLock;
 use std::sync::Arc;
 use std::ops::ControlFlow;
 use uuid::Uuid;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
+use crate::physical_planner::ExecutionPlan;
+use crate::common::record_batch::RecordBatch;
 
 #[derive(Clone)]
 pub struct SessionContext {
@@ -89,6 +94,7 @@ impl SessionState {
             .context(format!("failed to resolve database:{}", resolved_ref.database))
     }
 
+    /// create logical plan based on AST statment
     pub async fn make_logical_plan(&self, statement: sqlparser::ast::Statement) -> Result<LogicalPlan> {
         let references = self.extract_table_references(&statement)?;
 
@@ -118,6 +124,29 @@ impl SessionState {
         });
 
         planner.statement_to_plan(statement)
+    }
+
+    /// create a physical plan based on logical plan
+    pub async fn create_physical_plan(&self, logical_plan: &LogicalPlan) -> Result<Arc<dyn ExecutionPlan>> {
+        // first optimze the logical plan
+        let logical_plan = self.logical_optimize(logical_plan)?;
+
+        let planner = DefaultPhysicalPlanner::default();
+        // create the physical plan and do the physical optimization
+        planner.create_physical_plan(&logical_plan, self).await
+    }
+
+    /// logical optimization
+    pub fn logical_optimize(&self, plan: &LogicalPlan) -> Result<LogicalPlan> {
+        //todo: impl logical optimize
+        println!("todo: implement logical optimizer");
+        Ok(plan.clone())
+    }
+
+    // finally, execute the physical plan (optimized) and get result, i.e, vector of batch.
+    pub async fn execute_physical_plan(plan: Arc<dyn ExecutionPlan>) -> Result<Vec<RecordBatch>> {
+        let stream = plan.execute()?;
+        stream.try_collect::<Vec<_>>().await
     }
 
     /// Parse (Walk) the AST and extract tables referred in this statement

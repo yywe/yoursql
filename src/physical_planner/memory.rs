@@ -1,8 +1,8 @@
 use super::RecordBatchStream;
 use crate::common::schema::SchemaRef;
 use crate::common::{record_batch::RecordBatch, schema::Fields};
-use crate::physical_plan::ExecutionPlan;
-use crate::physical_plan::SendableRecordBatchStream;
+use crate::physical_planner::ExecutionPlan;
+use crate::physical_planner::SendableRecordBatchStream;
 use anyhow::Result;
 use futures::Stream;
 use std::any::Any;

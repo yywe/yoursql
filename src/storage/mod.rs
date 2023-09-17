@@ -1,4 +1,4 @@
-use crate::{common::schema::SchemaRef, session::SessionState, physical_plan::ExecutionPlan};
+use crate::{common::schema::SchemaRef, session::SessionState, physical_planner::ExecutionPlan};
 use std::any::Any;
 use async_trait::async_trait;
 use crate::expr::expr::Expr;

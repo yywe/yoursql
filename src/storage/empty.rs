@@ -6,8 +6,8 @@ use std::any::Any;
 use anyhow::Result;
 use std::sync::Arc;
 use crate::expr::expr::Expr;
-use crate::physical_plan::ExecutionPlan;
-use crate::physical_plan::empty::EmptyExec;
+use crate::physical_planner::ExecutionPlan;
+use crate::physical_planner::empty::EmptyExec;
 
 use super::project_table;
 
