@@ -66,3 +66,10 @@ impl PhysicalPlanner for DefaultPhysicalPlanner {
         unimplemented!();
     }
 }
+
+impl DefaultPhysicalPlanner {
+    pub fn physical_optimize(&self, plan: Arc<dyn ExecutionPlan>, session_state: &SessionState) ->  Result<Arc<dyn ExecutionPlan>> {
+        println!("todo: implement physical optimizer here");
+        Ok(plan)
+    }
+}

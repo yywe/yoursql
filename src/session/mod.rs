@@ -133,7 +133,8 @@ impl SessionState {
 
         let planner = DefaultPhysicalPlanner::default();
         // create the physical plan and do the physical optimization
-        planner.create_physical_plan(&logical_plan, self).await
+        let physical_plan = planner.create_physical_plan(&logical_plan, self).await?;
+        planner.physical_optimize(physical_plan, self)
     }
 
     /// logical optimization
@@ -143,10 +144,26 @@ impl SessionState {
         Ok(plan.clone())
     }
 
-    // finally, execute the physical plan (optimized) and get result, i.e, vector of batch.
-    pub async fn execute_physical_plan(plan: Arc<dyn ExecutionPlan>) -> Result<Vec<RecordBatch>> {
+    /// finally, execute the physical plan (optimized) and get result, i.e, vector of batch.
+    pub async fn execute_physical_plan(&self, plan: Arc<dyn ExecutionPlan>) -> Result<Vec<RecordBatch>> {
         let stream = plan.execute()?;
         stream.try_collect::<Vec<_>>().await
+    }
+
+    /// for test purpose, print the result record batches
+    pub fn print_record_batches(&self, batches: &Vec<RecordBatch>) {
+        let batch_iters = batches.iter();
+        let mut i = 0;
+        for batch in batch_iters {
+            if i == 0 {
+                let header = batch.schema.all_fields().iter().map(|f|(*f).clone()).collect::<Vec<_>>();
+                println!("{}", header.iter().map(|f|f.name().as_str()).collect::<Vec<_>>().join("|"));
+            }
+            for row in &batch.rows {
+                println!("{}", row.iter().map(|v|format!("{}",v)).collect::<Vec<_>>().join("|"))
+            }
+            i+=1;
+        }
     }
 
     /// Parse (Walk) the AST and extract tables referred in this statement
@@ -428,6 +445,19 @@ pub mod test {
         //println!("referered tables: {:#?}", _referred_tables);
         let _ans_plan = session.state.read().make_logical_plan(statement).await;
         //println!("logical plan:{}", _ans_plan);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_physical_planner() -> Result<()> {
+        let mut session = SessionContext::default();
+        init_mem_testdb(&mut session)?;
+        let sql = "SELECT id, name from testdb.student where age <19";
+        let statement = parse(sql).unwrap();
+        let logical_plan = session.state.read().make_logical_plan(statement).await?;
+        let physical_plan = session.state.read().create_physical_plan(&logical_plan).await?;
+        let record_batches = session.state.read().execute_physical_plan(physical_plan).await?;
+        session.state.read().print_record_batches(&record_batches);
         Ok(())
     }
 }
