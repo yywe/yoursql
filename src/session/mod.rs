@@ -455,6 +455,7 @@ pub mod test {
         let sql = "SELECT id, name from testdb.student where age <19";
         let statement = parse(sql).unwrap();
         let logical_plan = session.state.read().make_logical_plan(statement).await?;
+        println!("logical plan:{:?}", logical_plan);
         let physical_plan = session.state.read().create_physical_plan(&logical_plan).await?;
         let record_batches = session.state.read().execute_physical_plan(physical_plan).await?;
         session.state.read().print_record_batches(&record_batches);
