@@ -17,6 +17,8 @@ use crate::expr::utils::col;
 use crate::expr::utils::extract_columns_from_expr;
 use crate::expr::utils::find_aggregate_exprs;
 use crate::expr::utils::find_column_exprs;
+use crate::expr::expr::Sort;
+use sqlparser::ast::OrderByExpr;
 use crate::logical_planner::utils::check_columns_satisfy_exprs;
 use crate::logical_planner::utils::expr_as_column_expr;
 use crate::logical_planner::utils::rebase_expr;
@@ -30,6 +32,7 @@ use sqlparser::ast::{
 use sqlparser::ast::{Join, JoinConstraint};
 use std::collections::HashSet;
 use std::sync::Arc;
+use sqlparser::ast::Offset as SQLOffset;
 
 impl<'a, C: PlannerContext> LogicalPlanner<'a, C> {
     pub fn plan_query(&self, query: Query) -> Result<LogicalPlan> {
@@ -37,6 +40,8 @@ impl<'a, C: PlannerContext> LogicalPlanner<'a, C> {
         let set_expr = query.body;
         let plan = self.plan_set_expr(*set_expr)?;
         //todo: add order_by and limit plan
+        let plan = self.order_by(plan, query.order_by)?;
+        let plan = self.limit(plan, query.offset, query.limit)?;
         Ok(plan)
     }
 
@@ -543,6 +548,63 @@ impl<'a, C: PlannerContext> LogicalPlanner<'a, C> {
             None
         };
         Ok((plan, select_exprs_post_aggr, having_expr_post_aggr))
+    }
+
+    fn order_by(&self, plan: LogicalPlan, order_by: Vec<OrderByExpr>) -> Result<LogicalPlan> {
+        if order_by.is_empty() {
+            return Ok(plan)
+        }
+
+        let mut order_by_expr = vec![];
+        for e in order_by.iter() {
+            let OrderByExpr {
+                asc, expr, nulls_first
+            }=e;
+            // not the input expr is ast expr
+            let expr = self.sql_expr_to_logical_expr(expr.clone(), plan.output_schema().as_ref())?;
+            let asc = asc.unwrap_or(true);
+            order_by_expr.push(Expr::Sort(Sort{
+                expr: Box::new(expr),
+                asc: asc,
+                nulls_first: nulls_first.unwrap_or(!asc),
+            }))
+        }
+        LogicalPlanBuilder::from(plan).sort(order_by_expr)?.build()
+    }
+    fn limit(&self, input: LogicalPlan, skip: Option<SQLOffset>, fetch: Option<SQLExpr>) -> Result<LogicalPlan> {
+        use crate::common::types::DataValue;
+        if skip.is_none() && fetch.is_none() {
+            return Ok(input)
+        }
+        let skip = match skip {
+            Some(skip_expr) =>{
+                match self.ast_expr_to_expr(skip_expr.value, input.output_schema().as_ref())? {
+                    Expr::Literal(DataValue::Int64(Some(s)))=>{
+                        if s< 0 {
+                            return Err(anyhow!(format!("offset must >=0, got: {s}")))
+                        }
+                        Ok(s as usize)
+                    }
+                    _=>Err(anyhow!(format!("unexpected expression in offset clause")))
+                }
+            }?,
+            _=>0,
+        };
+
+        let fetch = match fetch {
+            Some(limit_expr) if limit_expr != sqlparser::ast::Expr::Value(sqlparser::ast::Value::Null)=>{
+                let n = match self.ast_expr_to_expr(limit_expr, input.output_schema().as_ref())? {
+                    Expr::Literal(DataValue::Int64(Some(n))) if n>=0 => {
+                        Ok(n as usize)
+                    }
+                    _=>Err(anyhow!(format!("limit cannot be negative")))
+                }?;
+                Some(n)
+            }
+            _=>None,
+        };
+        LogicalPlanBuilder::from(input).limit(skip, fetch)?.build()
+
     }
 }
 
