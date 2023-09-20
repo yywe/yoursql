@@ -16,7 +16,7 @@ use crate::expr::logical_plan::SubqueryAlias;
 use crate::expr::utils::col;
 use crate::expr::utils::extract_columns_from_expr;
 use crate::expr::utils::find_aggregate_exprs;
-use crate::expr::utils::find_column_exprs;
+//use crate::expr::utils::find_column_exprs;
 use crate::expr::expr::Sort;
 use sqlparser::ast::OrderByExpr;
 use crate::logical_planner::utils::check_columns_satisfy_exprs;

@@ -1,6 +1,6 @@
 use sqlparser::ast::Ident;
 use crate::expr::{expr::Expr, logical_plan::LogicalPlan, expr_rewriter::clone_with_replacement, utils::find_column_exprs};
-use std::collections::HashMap;
+//use std::collections::HashMap;
 use anyhow::{Result, anyhow};
 use crate::common::column::Column;
 

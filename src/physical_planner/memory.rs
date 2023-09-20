@@ -1,6 +1,6 @@
 use super::RecordBatchStream;
 use crate::common::schema::SchemaRef;
-use crate::common::{record_batch::RecordBatch, schema::Fields};
+use crate::common::record_batch::RecordBatch;
 use crate::physical_planner::ExecutionPlan;
 use crate::physical_planner::SendableRecordBatchStream;
 use anyhow::Result;
