@@ -285,6 +285,33 @@ pub fn resolve_columns(expr: &Expr, plan: &LogicalPlan) -> Result<Expr> {
     })
 }
 
+pub fn unnormalize_col(expr: Expr) -> Expr {
+    expr.transform(&|e|{
+        Ok({
+            if let Expr::Column(c) = e {
+                let col = Column {
+                    relation: None,
+                    name: c.name,
+                };
+                Transformed::Yes(Expr::Column(col))
+            }else{
+                Transformed::No(e)
+            }
+        })
+    }).expect("unnormalize is infallable")
+}
+
+pub fn unnormlize_cols(exprs: impl IntoIterator<Item=Expr>) -> Vec<Expr> {
+    exprs.into_iter().map(unnormalize_col).collect()
+}
+
+pub fn unalias(expr: Expr) -> Expr {
+    match expr {
+        Expr::Alias(sub_expr,_) => unalias(*sub_expr),
+        _=>expr,
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
