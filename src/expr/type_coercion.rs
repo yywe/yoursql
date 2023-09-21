@@ -2,7 +2,7 @@ use crate::common::types::DataType;
 use crate::expr::expr::Operator;
 use anyhow::{Context, Result, anyhow};
 
-use super::expr::{AggregateFunctionType};
+use super::expr::AggregateFunctionType;
 
 
 pub static STRINGS: &[DataType] = &[DataType::Utf8];

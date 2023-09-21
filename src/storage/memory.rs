@@ -1,7 +1,7 @@
 use crate::common::{record_batch::RecordBatch, schema::SchemaRef};
 use crate::expr::expr::Expr;
-use crate::physical_plan::ExecutionPlan;
-use crate::physical_plan::memory::MemoryExec;
+use crate::physical_planner::ExecutionPlan;
+use crate::physical_planner::memory::MemoryExec;
 use crate::session::SessionState;
 use crate::storage::Table;
 use anyhow::{anyhow, Result};

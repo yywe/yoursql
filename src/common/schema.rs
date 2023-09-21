@@ -50,6 +50,14 @@ impl Field {
         &self.data_type
     }
 
+    pub fn metadata(&self) -> &HashMap<String, String> {
+        &self.metadata
+    }
+
+    pub fn set_metadata(&mut self, metadata: HashMap<String, String>) {
+        self.metadata = metadata;
+    }
+
     pub fn is_nullable(&self) -> bool {
         self.nullable
     }

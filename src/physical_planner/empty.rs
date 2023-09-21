@@ -2,10 +2,10 @@ use crate::common::schema::Field;
 use crate::common::schema::SchemaRef;
 use crate::common::types::{DataType, DataValue};
 use anyhow::Result;
-use crate::physical_plan::ExecutionPlan;
+use crate::physical_planner::ExecutionPlan;
 use std::any::Any;
-use crate::common::{record_batch::RecordBatch,schema::Fields};
-use crate::physical_plan::SendableRecordBatchStream;
+use crate::common::record_batch::RecordBatch;
+use crate::physical_planner::SendableRecordBatchStream;
 use crate::common::schema::Schema;
 use super::memory::MemoryStream;
 use std::collections::HashMap;
@@ -49,11 +49,17 @@ impl ExecutionPlan for EmptyExec {
     fn as_any(&self) -> &dyn Any{
         self
     }
-    fn header(&self) -> Fields{
-        self.table.fields.clone()
+    fn schema(&self) -> SchemaRef{
+        self.table.clone()
     }
     fn execute(&self) -> Result<SendableRecordBatchStream>{
-        Ok(Box::pin(MemoryStream::try_new(self.data()?, self.header(), None)?))
+        Ok(Box::pin(MemoryStream::try_new(self.data()?, self.schema(), None)?))
+    }
+    fn children(&self) -> Vec<Arc<dyn ExecutionPlan>> {
+        vec![]
+    }
+    fn with_new_chilren(self: Arc<Self>, _children: Vec<Arc<dyn ExecutionPlan>>) -> Result<Arc<dyn ExecutionPlan>> {
+        Ok(Arc::new(EmptyExec::new(self.produce_one_row, self.table.clone())))
     }
 }
 

@@ -1,9 +1,8 @@
-use crate::common::types::DataValue;
 use super::schema::SchemaRef;
+use crate::common::types::DataValue;
 use anyhow::Context;
 use anyhow::Result;
 use std::sync::Arc;
-
 
 #[derive(Clone, Debug)]
 pub struct RecordBatch {
@@ -32,5 +31,9 @@ impl RecordBatch {
             schema: Arc::new(projected_schema),
             rows: projected_rows,
         })
+    }
+    // get data of specific at specific column index
+    pub fn column(&self, index: usize) -> Vec<DataValue> {
+        self.rows.iter().map(|row| row[index].clone()).collect()
     }
 }
