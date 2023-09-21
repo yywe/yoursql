@@ -3,7 +3,7 @@ use crate::common::schema::SchemaRef;
 use crate::common::record_batch::RecordBatch;
 use crate::physical_planner::ExecutionPlan;
 use crate::physical_planner::SendableRecordBatchStream;
-use anyhow::Result;
+use anyhow::{Result,anyhow};
 use futures::Stream;
 use std::any::Any;
 use std::pin::Pin;
@@ -45,6 +45,12 @@ impl ExecutionPlan for MemoryExec {
     }
     fn schema(&self) -> SchemaRef {
         self.projected_table.clone()
+    }
+    fn children(&self) -> Vec<Arc<dyn ExecutionPlan>> {
+        vec![]
+    }
+    fn with_new_chilren(self: Arc<Self>, children: Vec<Arc<dyn ExecutionPlan>>) -> Result<Arc<dyn ExecutionPlan>> {
+        Err(anyhow!("children cannot be replaced for MemoryExec"))
     }
     fn execute(&self) -> Result<SendableRecordBatchStream> {
         Ok(Box::pin(MemoryStream::try_new(

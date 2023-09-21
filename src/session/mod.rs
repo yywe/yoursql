@@ -452,7 +452,7 @@ pub mod test {
     async fn test_physical_planner() -> Result<()> {
         let mut session = SessionContext::default();
         init_mem_testdb(&mut session)?;
-        let sql = "SELECT id, name from testdb.student where age <19";
+        let sql = "SELECT id,name from testdb.student";
         let statement = parse(sql).unwrap();
         let logical_plan = session.state.read().make_logical_plan(statement).await?;
         println!("logical plan:{:?}", logical_plan);

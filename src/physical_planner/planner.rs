@@ -1,11 +1,15 @@
+use super::projection::ProjectionExec;
 use super::ExecutionPlan;
-use crate::expr::expr_rewriter::unnormlize_cols;
+use super::PhysicalPlanner;
+use crate::expr::expr::Expr;
 use crate::expr::expr_rewriter::unalias;
+use crate::expr::expr_rewriter::unnormlize_cols;
+use crate::expr::logical_plan::Projection;
 use crate::expr::logical_plan::TableScan;
 use crate::physical_planner::LogicalPlan;
 use crate::{physical_planner::DefaultPhysicalPlanner, session::SessionState};
+use anyhow::Context;
 use anyhow::{anyhow, Result};
-use crate::expr::expr::Expr;
 use futures::future::BoxFuture;
 use futures::FutureExt;
 use std::sync::Arc;
@@ -33,6 +37,36 @@ impl DefaultPhysicalPlanner {
                         .scan(session_state, projection.as_ref(), &unaliased)
                         .await
                 }
+                LogicalPlan::Projection(Projection { input, exprs, .. }) => {
+                    let input_exec = self.create_initial_plan(input, session_state).await?;
+                    let input_schema = input.as_ref().output_schema();
+                    let physical_exprs = exprs
+                        .iter()
+                        .map(|e| {
+                            let physical_name = if let Expr::Column(col) = e {
+                                let index_of_column = input_schema
+                                    .index_of_column_by_name(col.relation.as_ref(), &col.name)?
+                                    .context(format!("failed to find column {:?}", col));
+                                match index_of_column {
+                                    Ok(idx) => {
+                                        Ok(input_exec.schema().field(idx).name().to_string())
+                                    }
+                                    Err(_) => physical_name(e),
+                                }
+                            } else {
+                                physical_name(e)
+                            };
+                            tuple_err((
+                                self.create_physical_expr(e, input_schema.as_ref(), session_state),
+                                physical_name,
+                            ))
+                        })
+                        .collect::<Result<Vec<_>>>()?;
+                    Ok(Arc::new(ProjectionExec::try_new(
+                        physical_exprs,
+                        input_exec,
+                    )?))
+                }
                 other => Err(anyhow!(format!(
                     "unsupported logical plan {:?} to physical plan yet",
                     other
@@ -53,12 +87,22 @@ fn create_physical_name(e: &Expr, is_first_expr: bool) -> Result<String> {
         Expr::Column(c) => {
             if is_first_expr {
                 Ok(c.name.clone())
-            }else{
+            } else {
                 Ok(c.flat_name())
             }
         }
         Expr::Alias(_, name) => Ok(name.clone()),
         Expr::Literal(value) => Ok(format!("{value:?}")),
-        _=>Err(anyhow!("todo"))
+        _ => Err(anyhow!("todo")),
+    }
+}
+
+/// handy function to combine result
+fn tuple_err<T, R>(value: (Result<T>, Result<R>)) -> Result<(T, R)> {
+    match value {
+        (Ok(v1), Ok(v2)) => Ok((v1, v2)),
+        (Err(e1), Ok(_)) => Err(e1),
+        (Ok(_), Err(e2)) => Err(e2),
+        (Err(e1), Err(_)) => Err(e1),
     }
 }

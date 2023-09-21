@@ -55,5 +55,11 @@ impl ExecutionPlan for EmptyExec {
     fn execute(&self) -> Result<SendableRecordBatchStream>{
         Ok(Box::pin(MemoryStream::try_new(self.data()?, self.schema(), None)?))
     }
+    fn children(&self) -> Vec<Arc<dyn ExecutionPlan>> {
+        vec![]
+    }
+    fn with_new_chilren(self: Arc<Self>, _children: Vec<Arc<dyn ExecutionPlan>>) -> Result<Arc<dyn ExecutionPlan>> {
+        Ok(Arc::new(EmptyExec::new(self.produce_one_row, self.table.clone())))
+    }
 }
 

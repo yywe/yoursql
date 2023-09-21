@@ -1,6 +1,7 @@
 pub mod empty;
 pub mod memory;
 pub mod planner;
+pub mod projection;
 
 use crate::common::schema::SchemaRef;
 use crate::common::record_batch::RecordBatch;
@@ -30,6 +31,8 @@ pub trait ExecutionPlan: Debug + Send + Sync {
     fn as_any(&self) -> &dyn Any;
     fn schema(&self) -> SchemaRef;
     fn execute(&self) -> Result<SendableRecordBatchStream>;
+    fn children(&self) -> Vec<Arc<dyn ExecutionPlan>>;
+    fn with_new_chilren(self: Arc<Self>, children: Vec<Arc<dyn ExecutionPlan>>) -> Result<Arc<dyn ExecutionPlan>>;
 }
 
 pub async fn print_batch_stream(mut rs: Pin<Box<dyn RecordBatchStream + Send>>) -> Result<()> {
@@ -50,7 +53,7 @@ pub async fn print_batch_stream(mut rs: Pin<Box<dyn RecordBatchStream + Send>>) 
 #[async_trait]
 pub trait PhysicalPlanner: Send + Sync {
     async fn create_physical_plan(&self, logical_plan: &LogicalPlan, session_state: &SessionState) -> Result<Arc<dyn ExecutionPlan>>;
-    async fn create_physical_expr(&self, expr: &Expr, input_schema: &Schema, session_state: &SessionState) -> Result<Arc<dyn PhysicalExpr>>;
+    fn create_physical_expr(&self, expr: &Expr, input_schema: &Schema, session_state: &SessionState) -> Result<Arc<dyn PhysicalExpr>>;
 }
 
 #[derive(Default)]
@@ -65,7 +68,7 @@ impl PhysicalPlanner for DefaultPhysicalPlanner {
         Ok(plan)
     }
 
-    async fn create_physical_expr(&self, expr: &Expr, input_schema: &Schema, _session_state: &SessionState) -> Result<Arc<dyn PhysicalExpr>>{
+    fn create_physical_expr(&self, expr: &Expr, input_schema: &Schema, _session_state: &SessionState) -> Result<Arc<dyn PhysicalExpr>>{
         create_physical_expr(expr, input_schema)
     }
 }
