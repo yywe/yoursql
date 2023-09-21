@@ -86,7 +86,6 @@ impl Stream for ProjectionStream {
                 if column_batches.is_err() {
                     return Some(Err(anyhow!(format!("error when evaluate the batch: {:?}", column_batches.err()))));
                 }
-                println!("column batches:{:?}", column_batches);
                 let column_batches = column_batches.ok().unwrap_or(vec![]);
                 let n_col = self.expr.len();
                 let n_row = batch.rows.len();

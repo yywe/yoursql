@@ -2,6 +2,7 @@ pub mod empty;
 pub mod memory;
 pub mod planner;
 pub mod projection;
+pub mod filter;
 
 use crate::common::schema::SchemaRef;
 use crate::common::record_batch::RecordBatch;

@@ -452,10 +452,10 @@ pub mod test {
     async fn test_physical_planner() -> Result<()> {
         let mut session = SessionContext::default();
         init_mem_testdb(&mut session)?;
-        let sql = "SELECT id,name from testdb.student";
+        let sql = "SELECT id, address from testdb.student where name = 'Andy'";
         let statement = parse(sql).unwrap();
         let logical_plan = session.state.read().make_logical_plan(statement).await?;
-        println!("logical plan:{:?}", logical_plan);
+        //println!("logical plan:{:?}", logical_plan);
         let physical_plan = session.state.read().create_physical_plan(&logical_plan).await?;
         let record_batches = session.state.read().execute_physical_plan(physical_plan).await?;
         session.state.read().print_record_batches(&record_batches);
