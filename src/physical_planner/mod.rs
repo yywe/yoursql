@@ -3,6 +3,8 @@ pub mod memory;
 pub mod planner;
 pub mod projection;
 pub mod filter;
+pub mod cross_join;
+pub mod utils;
 
 use crate::common::schema::SchemaRef;
 use crate::common::record_batch::RecordBatch;

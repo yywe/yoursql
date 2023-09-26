@@ -23,9 +23,10 @@ test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 16 filtered out; fin
 # Your Takeaway
 Build a database is a tough job with a huge amount of code. The main takeaway is to learn how a database is built gradually. You can use the skeleton code here to do your experiments. In the latest revision, I'm keep each dev branch named as "MILSTONEn-**". So if you want to start from scratch, start from MILSTONE1, if you want learn how to build logical plan, start from MILSTONE2, etc.
 
-# Todo
+# Todo List
 - [x] Basic Scaffold: Catalog, Table Scan
 - [x] Build Logical Plan: Logical Expression and Logical Operation
+- [x] Physical Plan: Projection, Filter
 - [ ] Physical Plan: Join
 - [ ] Physical Plan: Aggregate
 - [ ] Physical Plan: Sort

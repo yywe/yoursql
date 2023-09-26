@@ -4,11 +4,12 @@ use super::PhysicalPlanner;
 use crate::expr::expr::Expr;
 use crate::expr::expr_rewriter::unalias;
 use crate::expr::expr_rewriter::unnormlize_cols;
-use crate::expr::logical_plan::Projection;
 use crate::expr::logical_plan::TableScan;
+use crate::expr::logical_plan::{CrossJoin, Projection};
+use crate::physical_planner::cross_join::CrossJoinExec;
+use crate::physical_planner::filter::FilterExec;
 use crate::physical_planner::LogicalPlan;
 use crate::{physical_planner::DefaultPhysicalPlanner, session::SessionState};
-use crate::physical_planner::filter::FilterExec;
 use anyhow::Context;
 use anyhow::{anyhow, Result};
 use futures::future::BoxFuture;
@@ -68,11 +69,22 @@ impl DefaultPhysicalPlanner {
                         input_exec,
                     )?))
                 }
-                LogicalPlan::Filter(filter)=>{
-                    let physical_input = self.create_initial_plan(&filter.input, session_state).await?;
+                LogicalPlan::Filter(filter) => {
+                    let physical_input = self
+                        .create_initial_plan(&filter.input, session_state)
+                        .await?;
                     let input_schema = filter.input.output_schema();
-                    let physical_filter_expr = self.create_physical_expr(&filter.predicate, &input_schema, session_state)?;
-                    Ok(Arc::new(FilterExec::try_new(physical_filter_expr, physical_input)?))
+                    let physical_filter_expr =
+                        self.create_physical_expr(&filter.predicate, &input_schema, session_state)?;
+                    Ok(Arc::new(FilterExec::try_new(
+                        physical_filter_expr,
+                        physical_input,
+                    )?))
+                }
+                LogicalPlan::CrossJoin(CrossJoin { left, right, .. }) => {
+                    let left_plan = self.create_initial_plan(left, session_state).await?;
+                    let right_plan = self.create_initial_plan(right, session_state).await?;
+                    Ok(Arc::new(CrossJoinExec::new(left_plan, right_plan)?))
                 }
                 other => Err(anyhow!(format!(
                     "unsupported logical plan {:?} to physical plan yet",
