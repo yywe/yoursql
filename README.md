@@ -35,7 +35,7 @@ Build a database is a tough job with a huge amount of code. The main takeaway is
 - [ ] Physical Optimizer
 - [ ] Storage Layer
 
-other:  finlaize create_name for physical expr, display for physical plan
+other:  finlaize create_name for physical expr, display for physical plan, create_physical_expr for other types.
 
 
 # References
