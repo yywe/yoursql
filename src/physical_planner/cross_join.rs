@@ -2,12 +2,14 @@ use crate::common::record_batch::RecordBatch;
 use crate::common::schema::{Schema, SchemaRef};
 use crate::physical_planner::utils::OnceAsync;
 use crate::physical_planner::utils::OnceFut;
+use crate::physical_planner::utils::collect_batch_stream;
 use anyhow::Result;
 use async_trait::async_trait;
 use futures::StreamExt;
 use futures::{ready, Stream};
 use std::sync::Arc;
 use std::task::Poll;
+
 
 use super::{ExecutionPlan, RecordBatchStream, SendableRecordBatchStream};
 
@@ -37,18 +39,7 @@ impl CrossJoinExec {
     }
 }
 
-async fn load_left_input(left: Arc<dyn ExecutionPlan>) -> Result<RecordBatch> {
-    let stream = left.execute()?;
-    let batches: Vec<Result<RecordBatch>> = stream.collect().await;
-    let mut merged_rows = Vec::new();
-    for item in batches {
-        merged_rows.extend(item?.rows);
-    }
-    Ok(RecordBatch {
-        schema: left.schema(),
-        rows: merged_rows,
-    })
-}
+
 
 struct CrossJoinStream {
     schema: Arc<Schema>,
@@ -160,7 +151,7 @@ impl ExecutionPlan for CrossJoinExec {
     }
     fn execute(&self) -> Result<SendableRecordBatchStream> {
         let stream = self.right.execute()?;
-        let left_fut = self.left_fut.once(|| load_left_input(self.left.clone()));
+        let left_fut = self.left_fut.once(|| collect_batch_stream(self.left.clone()));
         Ok(Box::pin(CrossJoinStream {
             schema: self.schema.clone(),
             left_fut,

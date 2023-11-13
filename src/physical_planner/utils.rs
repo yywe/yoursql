@@ -1,10 +1,13 @@
 use anyhow::{anyhow, Result};
+use crate::common::record_batch::RecordBatch;
 use core::future::Future;
 use futures::future::{BoxFuture, Shared};
 use futures::{ready, FutureExt};
 use parking_lot::Mutex;
 use std::sync::Arc;
 use std::task::{Context, Poll};
+use super::ExecutionPlan;
+use futures::StreamExt;
 
 type OnceFutPending<T> = Shared<BoxFuture<'static, SharedResult<Arc<T>>>>;
 pub type SharedResult<T> = core::result::Result<T, Arc<anyhow::Error>>;
@@ -90,4 +93,17 @@ impl<T: 'static> OnceAsync<T> {
             Fut: Future<Output=Result<T>> + Send + 'static {
         self.fut.lock().get_or_insert_with(||OnceFut::new(f())).clone()
     }
+}
+
+pub async fn collect_batch_stream(plan: Arc<dyn ExecutionPlan>) -> Result<RecordBatch> {
+    let stream = plan.execute()?;
+    let batches: Vec<Result<RecordBatch>> = stream.collect().await;
+    let mut merged_rows = Vec::new();
+    for item in batches {
+        merged_rows.extend(item?.rows);
+    }
+    Ok(RecordBatch {
+        schema: plan.schema(),
+        rows: merged_rows,
+    })
 }
