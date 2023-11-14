@@ -171,7 +171,28 @@ impl NestedLoopJoinStream {
         &mut self,
         cx: &mut std::task::Context<'_>,
     ) -> Poll<Option<Result<RecordBatch>>> {
-        return Poll::Ready(None);
+        // right table is the inner table, has all data
+        let right_data = match ready!(self.inner_table.get(cx)) {
+            Ok(data) => data,
+            Err(e) => return Poll::Ready(Some(Err(e))),
+        };
+        self.outer_table
+            .poll_next_unpin(cx)
+            .map(|maybe_batch| match maybe_batch {
+                Some(Ok(left_batch)) => {
+                    let result = join_inner_and_outer_batch(
+                        right_data,
+                        &left_batch,
+                        self.join_type,
+                        self.filter.as_ref(),
+                        &self.schema,
+                        &mut self.visited_leftside, // will not be used to consturct last rows
+                    );
+                    Some(result)
+                }
+                Some(err) => Some(err),
+                None => None,
+            })
     }
 }
 
