@@ -271,6 +271,9 @@ impl<'a, C: PlannerContext> LogicalPlanner<'a, C> {
             sqlparser::ast::JoinOperator::FullOuter(constraint) => {
                 self.parse_join(left, right, constraint, JoinType::Full)
             }
+            sqlparser::ast::JoinOperator::CrossJoin => {
+                self.parse_cross_join(left, right)
+            }
             _ => {
                 return Err(anyhow!(
                     "unsupported join operator {:?}",
@@ -337,6 +340,10 @@ impl<'a, C: PlannerContext> LogicalPlanner<'a, C> {
             }
             _ => return Err(anyhow!(format!("join constrait NONE is not supported"))),
         }
+    }
+
+    fn parse_cross_join(&self, left: LogicalPlan, right: LogicalPlan)->Result<LogicalPlan> {
+        LogicalPlanBuilder::from(left).cross_join(right)?.build()
     }
 
     pub fn object_name_to_table_refernce(
