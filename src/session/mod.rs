@@ -452,14 +452,29 @@ pub mod test {
     async fn test_physical_planner() -> Result<()> {
         let mut session = SessionContext::default();
         init_mem_testdb(&mut session)?;
+        
+        //cross join
+        //println!("test cross join");
         let sql = "SELECT student.id, course.name, age, address, instructor from testdb.student cross join testdb.course";
-        println!("the input sql: {}", sql);
+        //println!("the input sql: {}", sql);
         let statement = parse(sql).unwrap();
         let logical_plan = session.state.read().make_logical_plan(statement).await?;
-        println!("logical plan:{:?}", logical_plan);
+        //println!("logical plan:{:?}", logical_plan);
         let physical_plan = session.state.read().create_physical_plan(&logical_plan).await?;
         let record_batches = session.state.read().execute_physical_plan(physical_plan).await?;
         session.state.read().print_record_batches(&record_batches);
+        
+        //nested loop join
+        //println!("test regular join-nestedloop");
+        let sql = "SELECT student.id, student.name, score from testdb.student inner join testdb.enroll on id=student_id";
+        //println!("the input sql: {}", sql);
+        let statement = parse(sql).unwrap();
+        let logical_plan = session.state.read().make_logical_plan(statement).await?;
+        //println!("logical plan:{:?}", logical_plan);
+        let physical_plan = session.state.read().create_physical_plan(&logical_plan).await?;
+        let record_batches = session.state.read().execute_physical_plan(physical_plan).await?;
+        session.state.read().print_record_batches(&record_batches);
+
         Ok(())
     }
 }

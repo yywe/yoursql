@@ -131,7 +131,7 @@ impl NestedLoopJoinStream {
             .poll_next_unpin(cx)
             .map(|maybe_batch| match maybe_batch {
                 Some(Ok(right_batch)) => {
-                    let result = join_inner_and_outer_batch(
+                    let result = join_left_and_right_batch(
                         left_data,
                         &right_batch,
                         self.join_type,
@@ -180,9 +180,9 @@ impl NestedLoopJoinStream {
             .poll_next_unpin(cx)
             .map(|maybe_batch| match maybe_batch {
                 Some(Ok(left_batch)) => {
-                    let result = join_inner_and_outer_batch(
-                        right_data,
+                    let result = join_left_and_right_batch(
                         &left_batch,
+                        right_data,
                         self.join_type,
                         self.filter.as_ref(),
                         &self.schema,
@@ -202,20 +202,20 @@ impl RecordBatchStream for NestedLoopJoinStream {
     }
 }
 
-fn join_inner_and_outer_batch(
-    inner_batch: &RecordBatch,
-    outer_batch: &RecordBatch,
+fn join_left_and_right_batch(
+    left_batch: &RecordBatch,
+    right_batch: &RecordBatch,
     join_type: JoinType,
     filter: Option<&Arc<dyn PhysicalExpr>>,
     schema: &Schema,
-    visited_inner_side: &mut HashMap<usize, bool>,
+    visited_left_side: &mut HashMap<usize, bool>,
 ) -> Result<RecordBatch> {
-    let merged_rows_with_idices: Vec<(Vec<DataValue>, usize, usize)> = inner_batch
+    let merged_rows_with_idices: Vec<(Vec<DataValue>, usize, usize)> = left_batch
         .rows
         .iter()
         .enumerate()
         .flat_map(|(left_idx, lrow)| {
-            outer_batch
+            right_batch
                 .rows
                 .iter()
                 .enumerate()
@@ -233,12 +233,11 @@ fn join_inner_and_outer_batch(
         schema: Arc::new(schema.clone()),
         rows: merged_rows,
     };
-
     if let Some(filter_exp) = filter {
-        let mut visited_outer_indices = HashMap::new();
+        let mut visited_right_indices = HashMap::new();
         let filter_column = filter_exp.evaluate(&merged_batch)?;
         let mut filtered_rows: Vec<Vec<DataValue>> = Vec::new();
-        for (((row, flag), inner_idx), outer_idx) in merged_batch
+        for (((row, flag), left_idx), right_idx) in merged_batch
             .rows
             .into_iter()
             .zip(filter_column.into_iter())
@@ -249,34 +248,45 @@ fn join_inner_and_outer_batch(
                 DataValue::Boolean(v) => {
                     if let Some(true) = v {
                         filtered_rows.push(row);
-                        visited_inner_side.insert(inner_idx, true);
-                        visited_outer_indices.insert(outer_idx, true);
+                        visited_left_side.insert(left_idx, true);
+                        visited_right_indices.insert(right_idx, true);
                     }
                 }
                 _ => return Err(anyhow::anyhow!("Invalid Filter evaluation result")),
             }
         }
-        //if not inner join, for unmatched outer rows, add NULLs, for full join, will add other side in the caller
-        if join_type != JoinType::Inner {
-            for idx in 0..outer_batch.rows.len() {
-                if visited_outer_indices.contains_key(&idx) == false {
-                    match join_type {
-                        JoinType::Right | JoinType::Full => {
-                            let mut append_row =
-                                vec![DataValue::Null; inner_batch.schema.fields.len()];
-                            append_row.extend(outer_batch.rows[idx].clone());
-                            filtered_rows.push(append_row);
-                        }
-                        JoinType::Left => {
-                            let mut append_row = outer_batch.rows[idx].clone();
-                            append_row
-                                .extend(vec![DataValue::Null; inner_batch.schema.fields.len()]);
-                            filtered_rows.push(append_row);
-                        }
-                        _ => unreachable!(),
+
+        match join_type {
+            // for right join and full join, the left side has all the data, right side is looped as a stream
+            // here, for rows in right side stream, there is not matched left, add left as NULLs
+            
+            // for full join, still, left is build side has all data, ROWs with unmatched right side (left NULLs) are added here
+            // meanwhile, visited_left_side will accumulate the visited (matched) left rows.
+            //when right side stream is done, then then finally look at remaining unvisited left index
+
+            // as such, the full join for another half of unmatched rows (left unmatched, add NULLs right), is only processed in left is build side
+            // poll_next_impl_for_build_left
+            JoinType::Right | JoinType::Full => {
+                for idx in 0..right_batch.rows.len() {
+                    if visited_right_indices.contains_key(&idx) == false {
+                        let mut extra_row = vec![DataValue::Null; left_batch.schema.fields.len()];
+                        extra_row.extend(right_batch.rows[idx].clone());
+                        filtered_rows.push(extra_row);
                     }
                 }
             }
+            // for left join, right side has all the data, left side is the stream
+            // for rows in the stream not matched, add NULLs for right
+            JoinType::Left => {
+                for idx in 0..left_batch.rows.len() {
+                    if visited_left_side.contains_key(&idx) == false {
+                        let mut extra_row = left_batch.rows[idx].clone();
+                        extra_row.extend(vec![DataValue::Null; right_batch.schema.fields.len()]);
+                        filtered_rows.push(extra_row);
+                    }
+                }
+            }
+            _=>{},
         }
         Ok(RecordBatch {
             schema: Arc::new(schema.clone()),

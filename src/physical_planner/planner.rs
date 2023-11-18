@@ -1,3 +1,4 @@
+use super::nested_loop_join::NestedLoopJoinExec;
 use super::projection::ProjectionExec;
 use super::ExecutionPlan;
 use super::PhysicalPlanner;
@@ -5,7 +6,8 @@ use crate::expr::expr::Expr;
 use crate::expr::expr_rewriter::unalias;
 use crate::expr::expr_rewriter::unnormlize_cols;
 use crate::expr::logical_plan::TableScan;
-use crate::expr::logical_plan::{CrossJoin, Projection};
+use crate::expr::logical_plan::builder::wrap_projection_for_join;
+use crate::expr::logical_plan::{CrossJoin, Projection, Join};
 use crate::physical_planner::cross_join::CrossJoinExec;
 use crate::physical_planner::filter::FilterExec;
 use crate::physical_planner::LogicalPlan;
@@ -85,6 +87,57 @@ impl DefaultPhysicalPlanner {
                     let left_plan = self.create_initial_plan(left, session_state).await?;
                     let right_plan = self.create_initial_plan(right, session_state).await?;
                     Ok(Arc::new(CrossJoinExec::new(left_plan, right_plan)?))
+                }
+                LogicalPlan::Join(Join{
+                    left,
+                    right,
+                    on: keys,
+                    filter,
+                    join_type,
+                    null_equals_null,
+                    schema: join_schema,
+                    ..
+                })=>{
+                    let _null_equals_null = *null_equals_null; //not used yet, used for hash join and sort merge
+                    
+                    // check if there is expr equal join like where 3*columnA=2*columnB
+                    // i.e, any pair does not satisfy Expr::Column
+                    let has_expr_equal_join = keys.iter().any(|(l, r)|{
+                        !(matches!(l, Expr::Column(_)) && matches!(r, Expr::Column(_)))
+                    });
+                    // if has expr equal join, we do a projection, like project 3 * column A to "3*columnA"
+                    // as a new column
+                    if has_expr_equal_join {
+                        // get all left and right join keys in sep vector
+                        let left_keys = keys.iter().map(|(l, _r)|l).cloned().collect::<Vec<_>>();
+                        let right_keys = keys.iter().map(|(_l, r)|r).cloned().collect::<Vec<_>>();
+                        let (left, right, column_on, added_project) = {
+                            let (left, left_col_keys, left_projected) = wrap_projection_for_join(left_keys.as_slice(), left.as_ref().clone())?;
+                            let (right, right_col_keys, right_projected) = wrap_projection_for_join(&right_keys, right.as_ref().clone())?;
+                            (left, right, (left_col_keys, right_col_keys), left_projected || right_projected)
+                        };
+                        let join_plan = LogicalPlan::Join(Join::try_new_with_project_input(logical_plan, Arc::new(left), Arc::new(right), column_on)?);
+                        // if we have projection, after the join with projection, we need to remove it
+                        let join_plan = if added_project {
+                            //extract original columns from original join_schema
+                            let final_join_result = join_schema.fields().iter().map(|f|Expr::Column(f.qualified_column())).collect::<Vec<_>>();
+                            let projection = Projection::try_new_with_schema(final_join_result, Arc::new(join_plan), join_schema.clone())?;
+                            LogicalPlan::Projection(projection)
+                        }else{
+                            join_plan
+                        };
+                        return self.create_initial_plan(&join_plan, session_state).await;
+                    }
+                    //all equivilent join are columns now
+                    let physical_left = self.create_initial_plan(&left, session_state).await?;
+                    let physical_right = self.create_initial_plan(&right, session_state).await?;
+                    let join_filter = match filter {
+                        Some(expr)=>{
+                            Some(self.create_physical_expr(expr, join_schema, session_state)?)
+                        }
+                        _=>None,
+                    };
+                    Ok(Arc::new(NestedLoopJoinExec::try_new(physical_left, physical_right, join_filter, join_type)?))
                 }
                 other => Err(anyhow!(format!(
                     "unsupported logical plan {:?} to physical plan yet",

@@ -17,6 +17,8 @@ use std::fmt::Display;
 use std::hash::Hash;
 use std::sync::Arc;
 
+use self::builder::build_join_schema;
+
 use super::expr_schema::{exprlist_to_fields, ExprToSchema};
 use crate::expr_vec_fmt;
 
@@ -72,6 +74,19 @@ pub struct Join {
     pub join_constraint: JoinConstraint,
     pub schema: SchemaRef,
     pub null_equals_null: bool,
+}
+
+impl Join {
+    ///create new join based on original join, left and right has projection columns
+    pub fn try_new_with_project_input(original: &LogicalPlan, left: Arc<LogicalPlan>, right: Arc<LogicalPlan>, column_on: (Vec<Column>, Vec<Column>)) -> Result<Self> {
+        let original_join = match original {
+            LogicalPlan::Join(join) => join,
+            _=>return Err(anyhow::anyhow!("could not create join with project input"))
+        };
+        let on: Vec<(Expr, Expr)> = column_on.0.into_iter().zip(column_on.1.into_iter()).map(|(l, r)|(Expr::Column(l), Expr::Column(r))).collect();
+        let join_schema = build_join_schema(left.output_schema().as_ref(), right.output_schema().as_ref(), &original_join.join_type)?;
+        Ok(Join { left: left, right: right, on: on, filter: original_join.filter.clone(), join_type: original_join.join_type, join_constraint: original_join.join_constraint, schema: Arc::new(join_schema), null_equals_null: original_join.null_equals_null })
+    }
 }
 
 #[derive(Clone, PartialEq, Eq, Hash)]

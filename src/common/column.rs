@@ -16,6 +16,12 @@ impl Column {
             name: name.into(),
         }
     }
+    pub fn from_name(name: impl Into<String>) -> Self {
+        Self {
+            relation: None, 
+            name: name.into(),
+        }
+    }
     pub fn from_qualified_name(flat_name: impl Into<String>) -> Self {
         let flat_name = flat_name.into();
         let mut idents = parse_identifiers_normalized(&flat_name);
