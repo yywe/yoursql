@@ -27,7 +27,7 @@ Build a database is a tough job with a huge amount of code. The main takeaway is
 - [x] Basic Scaffold: Catalog, Table Scan
 - [x] Build Logical Plan: Logical Expression and Logical Operation
 - [x] Physical Plan: Projection, Filter
-- [ ] Physical Plan: Join
+- [x] Physical Plan: Join [Nested Loop; todo: HashJoin]
 - [ ] Physical Plan: Aggregate
 - [ ] Physical Plan: Sort
 - [ ] Physical Plan: Limit & Offset
@@ -35,7 +35,11 @@ Build a database is a tough job with a huge amount of code. The main takeaway is
 - [ ] Physical Optimizer
 - [ ] Storage Layer
 
-other:  finlaize create_name for physical expr, display for physical plan, create_physical_expr for other types.
+other minor finalization:  
+
+- [ ] create_name for physical expr (and display?), display for physical plan
+- [ ] create_physical_expr for more types.
+
 
 
 # References
