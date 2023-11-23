@@ -144,6 +144,38 @@ impl Accumulator for CountAccumulator {
 }
 
 
+#[derive(Debug)]
+pub struct AvgAccumulator {
+    sum: DataValue,
+    count: i64,
+}
+
+impl AvgAccumulator {
+    pub fn try_new(data_type: &DataType) -> Result<Self> {
+        Ok(Self{sum: DataValue::try_from(data_type)?, count: 0})
+    }
+}
+
+impl Accumulator for AvgAccumulator {
+    fn update_batch(&mut self, values: &[&[DataValue]]) -> Result<()> {
+        let values = values[0];
+        let mut initiated = !self.sum.is_none();
+        for value in values {
+            if initiated == true {
+                self.sum = eval_binary_numeric_value_pair(&self.sum, value, Operator::Plus)?;
+            }else{
+                self.sum = value.clone();
+                initiated = true;
+            }
+            self.count += 1;
+        }
+        Ok(())
+    }
+    fn evaluate(&self) -> Result<DataValue> {
+        eval_binary_numeric_value_pair(&self.sum, &DataValue::Int64(Some(self.count)), Operator::Divide)
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -182,6 +214,13 @@ mod test {
         let mut mycount = CountAccumulator::new()?;
         mycount.update_batch(&[&[DataValue::Float32(Some(1.0)),DataValue::Float32(Some(3.0))],&[DataValue::Float32(Some(1.0)),DataValue::Float32(Some(3.0))]])?;
         assert_eq!(mycount.evaluate()?, DataValue::Int64(Some(2)));
+        Ok(())
+    }
+    #[test]
+    fn test_avg_accumulator() -> Result<()> {
+        let mut myavg = AvgAccumulator::try_new(&DataType::Float32)?;
+        myavg.update_batch(&[&[DataValue::Float32(Some(1.0)),DataValue::Float32(Some(4.0))]])?;
+        assert_eq!(myavg.evaluate()?, DataValue::Float32(Some(2.5)));
         Ok(())
     }
 }
