@@ -6,6 +6,7 @@ pub mod filter;
 pub mod cross_join;
 pub mod utils;
 pub mod nested_loop_join;
+pub mod aggregate;
 
 use crate::common::schema::SchemaRef;
 use crate::common::record_batch::RecordBatch;
