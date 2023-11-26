@@ -1,13 +1,20 @@
+use super::aggregate::PhysicalGroupBy;
 use super::nested_loop_join::NestedLoopJoinExec;
 use super::projection::ProjectionExec;
 use super::ExecutionPlan;
 use super::PhysicalPlanner;
+use crate::common::schema::Schema;
+use crate::expr::expr::AggregateFunction;
 use crate::expr::expr::Expr;
 use crate::expr::expr_rewriter::unalias;
 use crate::expr::expr_rewriter::unnormlize_cols;
-use crate::expr::logical_plan::TableScan;
 use crate::expr::logical_plan::builder::wrap_projection_for_join;
-use crate::expr::logical_plan::{CrossJoin, Projection, Join};
+use crate::expr::logical_plan::TableScan;
+use crate::expr::logical_plan::{Aggregate, CrossJoin, Join, Projection};
+use crate::physical_expr::aggregate::create_aggregate_expr_impl;
+use crate::physical_expr::aggregate::AggregateExpr;
+use crate::physical_expr::planner::create_physical_expr;
+use crate::physical_planner::aggregate::AggregateExec;
 use crate::physical_planner::cross_join::CrossJoinExec;
 use crate::physical_planner::filter::FilterExec;
 use crate::physical_planner::LogicalPlan;
@@ -28,12 +35,12 @@ impl DefaultPhysicalPlanner {
         async move {
             let exec_plan: Result<Arc<dyn ExecutionPlan>> = match logical_plan {
                 LogicalPlan::TableScan(TableScan {
-                    table_name,
+                    table_name: _,
                     source,
                     projection,
-                    projected_schema,
+                    projected_schema: _,
                     filters,
-                    fetch,
+                    fetch: _,
                 }) => {
                     let filters = unnormlize_cols(filters.iter().cloned());
                     let unaliased: Vec<Expr> = filters.into_iter().map(unalias).collect();
@@ -88,7 +95,7 @@ impl DefaultPhysicalPlanner {
                     let right_plan = self.create_initial_plan(right, session_state).await?;
                     Ok(Arc::new(CrossJoinExec::new(left_plan, right_plan)?))
                 }
-                LogicalPlan::Join(Join{
+                LogicalPlan::Join(Join {
                     left,
                     right,
                     on: keys,
@@ -97,33 +104,55 @@ impl DefaultPhysicalPlanner {
                     null_equals_null,
                     schema: join_schema,
                     ..
-                })=>{
+                }) => {
                     let _null_equals_null = *null_equals_null; //not used yet, used for hash join and sort merge
-                    
+
                     // check if there is expr equal join like where 3*columnA=2*columnB
                     // i.e, any pair does not satisfy Expr::Column
-                    let has_expr_equal_join = keys.iter().any(|(l, r)|{
+                    let has_expr_equal_join = keys.iter().any(|(l, r)| {
                         !(matches!(l, Expr::Column(_)) && matches!(r, Expr::Column(_)))
                     });
                     // if has expr equal join, we do a projection, like project 3 * column A to "3*columnA"
                     // as a new column
                     if has_expr_equal_join {
                         // get all left and right join keys in sep vector
-                        let left_keys = keys.iter().map(|(l, _r)|l).cloned().collect::<Vec<_>>();
-                        let right_keys = keys.iter().map(|(_l, r)|r).cloned().collect::<Vec<_>>();
+                        let left_keys = keys.iter().map(|(l, _r)| l).cloned().collect::<Vec<_>>();
+                        let right_keys = keys.iter().map(|(_l, r)| r).cloned().collect::<Vec<_>>();
                         let (left, right, column_on, added_project) = {
-                            let (left, left_col_keys, left_projected) = wrap_projection_for_join(left_keys.as_slice(), left.as_ref().clone())?;
-                            let (right, right_col_keys, right_projected) = wrap_projection_for_join(&right_keys, right.as_ref().clone())?;
-                            (left, right, (left_col_keys, right_col_keys), left_projected || right_projected)
+                            let (left, left_col_keys, left_projected) = wrap_projection_for_join(
+                                left_keys.as_slice(),
+                                left.as_ref().clone(),
+                            )?;
+                            let (right, right_col_keys, right_projected) =
+                                wrap_projection_for_join(&right_keys, right.as_ref().clone())?;
+                            (
+                                left,
+                                right,
+                                (left_col_keys, right_col_keys),
+                                left_projected || right_projected,
+                            )
                         };
-                        let join_plan = LogicalPlan::Join(Join::try_new_with_project_input(logical_plan, Arc::new(left), Arc::new(right), column_on)?);
+                        let join_plan = LogicalPlan::Join(Join::try_new_with_project_input(
+                            logical_plan,
+                            Arc::new(left),
+                            Arc::new(right),
+                            column_on,
+                        )?);
                         // if we have projection, after the join with projection, we need to remove it
                         let join_plan = if added_project {
                             //extract original columns from original join_schema
-                            let final_join_result = join_schema.fields().iter().map(|f|Expr::Column(f.qualified_column())).collect::<Vec<_>>();
-                            let projection = Projection::try_new_with_schema(final_join_result, Arc::new(join_plan), join_schema.clone())?;
+                            let final_join_result = join_schema
+                                .fields()
+                                .iter()
+                                .map(|f| Expr::Column(f.qualified_column()))
+                                .collect::<Vec<_>>();
+                            let projection = Projection::try_new_with_schema(
+                                final_join_result,
+                                Arc::new(join_plan),
+                                join_schema.clone(),
+                            )?;
                             LogicalPlan::Projection(projection)
-                        }else{
+                        } else {
                             join_plan
                         };
                         return self.create_initial_plan(&join_plan, session_state).await;
@@ -132,13 +161,47 @@ impl DefaultPhysicalPlanner {
                     let physical_left = self.create_initial_plan(&left, session_state).await?;
                     let physical_right = self.create_initial_plan(&right, session_state).await?;
                     let join_filter = match filter {
-                        Some(expr)=>{
+                        Some(expr) => {
                             Some(self.create_physical_expr(expr, join_schema, session_state)?)
                         }
-                        _=>None,
+                        _ => None,
                     };
-                    Ok(Arc::new(NestedLoopJoinExec::try_new(physical_left, physical_right, join_filter, join_type)?))
+                    Ok(Arc::new(NestedLoopJoinExec::try_new(
+                        physical_left,
+                        physical_right,
+                        join_filter,
+                        join_type,
+                    )?))
                 }
+                LogicalPlan::Aggregate(Aggregate {
+                    input,
+                    group_expr,
+                    aggr_expr,
+                    ..
+                }) => {
+                    let input_exec = self.create_initial_plan(input, session_state).await?;
+                    let input_schema = input_exec.schema();
+                    let g_expr = group_expr
+                        .iter()
+                        .map(|e| {
+                            tuple_err((
+                                self.create_physical_expr(e, input_schema.as_ref(), session_state),
+                                physical_name(e),
+                            ))
+                        })
+                        .collect::<Result<Vec<_>>>()?;
+                    let physical_group_by = PhysicalGroupBy::new(g_expr);
+                    let physical_agg_exprs = aggr_expr
+                        .iter()
+                        .map(|e| create_aggregate_expr(e, input_schema.as_ref()))
+                        .collect::<Result<Vec<_>>>()?;
+                    Ok(Arc::new(AggregateExec::try_new(
+                        physical_group_by,
+                        physical_agg_exprs,
+                        input_exec,
+                    )?))
+                }
+
                 other => Err(anyhow!(format!(
                     "unsupported logical plan {:?} to physical plan yet",
                     other
@@ -165,7 +228,14 @@ fn create_physical_name(e: &Expr, is_first_expr: bool) -> Result<String> {
         }
         Expr::Alias(_, name) => Ok(name.clone()),
         Expr::Literal(value) => Ok(format!("{value:?}")),
-        _ => Err(anyhow!("todo")),
+        Expr::AggregateFunction(AggregateFunction{
+            fun,
+            distinct,
+            args,
+            ..
+        })=>create_function_physical_name(&fun.to_string(), *distinct, args),
+
+        other => Err(anyhow!(format!("todo add physical name for {other:?}"))),
     }
 }
 
@@ -176,5 +246,46 @@ fn tuple_err<T, R>(value: (Result<T>, Result<R>)) -> Result<(T, R)> {
         (Err(e1), Ok(_)) => Err(e1),
         (Ok(_), Err(e2)) => Err(e2),
         (Err(e1), Err(_)) => Err(e1),
+    }
+}
+
+fn create_function_physical_name(fun: &str, distinct: bool, args: &[Expr]) -> Result<String> {
+    let names: Vec<String> = args.iter().map(|e|create_physical_name(e, false)).collect::<Result<Vec<_>>>()?;
+    let distinct_str = match distinct {
+        true => "DISTINCT",
+        false=>"",
+    };
+    Ok(format!("{}({}{})", fun, distinct_str, names.join(",")))
+}
+
+fn create_aggregate_expr(e: &Expr, input_schema: &Schema) -> Result<Arc<dyn AggregateExpr>> {
+    let (name, e) = match e {
+        Expr::Alias(sub_expr, alias) => (alias.clone(), sub_expr.as_ref()),
+        _ => (physical_name(e)?, e),
+    };
+    match e {
+        Expr::AggregateFunction(AggregateFunction {
+            fun,
+            args,
+            distinct,
+            filter,
+            order_by,
+        }) => {
+            if *distinct != false || filter.is_some() || order_by.is_some() {
+                //todo
+                return Err(anyhow!(format!(
+                    "unsupported input for aggregate function:{fun:?}"
+                )));
+            }
+            let args = args
+                .iter()
+                .map(|expr| create_physical_expr(expr, input_schema))
+                .collect::<Result<Vec<_>>>()?;
+            let agg_expr = create_aggregate_expr_impl(fun, *distinct, &args, input_schema, name)?;
+            Ok(agg_expr)
+        }
+        other => Err(anyhow!(
+            format!("unsupported aggregate function:{other:?}",)
+        )),
     }
 }

@@ -366,7 +366,7 @@ pub mod test {
         let table3_def = Schema::new(
             vec![
                 Field::new("student_id", DataType::Int64, false,Some(table3.clone())),
-                Field::new("couse_id", DataType::Int64, false,Some(table3.clone())),
+                Field::new("course_id", DataType::Int64, false,Some(table3.clone())),
                 Field::new("score", DataType::Int64, false,Some(table3.clone())),
             ],
             HashMap::new(),
@@ -375,9 +375,12 @@ pub mod test {
         let row_batch1 = vec![
             vec![DataValue::Int64(Some(1)), DataValue::Int64(Some(1)),DataValue::Int64(Some(100))],
             vec![DataValue::Int64(Some(2)), DataValue::Int64(Some(4)),DataValue::Int64(Some(98))],
+            vec![DataValue::Int64(Some(1)), DataValue::Int64(Some(2)),DataValue::Int64(Some(92))],
+            vec![DataValue::Int64(Some(2)), DataValue::Int64(Some(3)),DataValue::Int64(Some(91))],
         ];
         let row_batch2 = vec![
             vec![DataValue::Int64(Some(3)), DataValue::Int64(Some(2)),DataValue::Int64(Some(110))],
+            vec![DataValue::Int64(Some(3)), DataValue::Int64(Some(1)),DataValue::Int64(Some(70))],
             vec![DataValue::Int64(Some(4)), DataValue::Int64(Some(3)),DataValue::Int64(Some(120))],
         ];
         let batch1 = RecordBatch {
@@ -475,6 +478,31 @@ pub mod test {
         let record_batches = session.state.read().execute_physical_plan(physical_plan).await?;
         session.state.read().print_record_batches(&record_batches);
 
+
+        //aggregate
+        println!("test aggregate no-groupby-----");
+        let sql = "SELECT max(score) from testdb.enroll";
+        println!("the input sql: {}", sql);
+        let statement = parse(sql).unwrap();
+        let logical_plan = session.state.read().make_logical_plan(statement).await?;
+        println!("logical plan:{:?}", logical_plan);
+        let physical_plan = session.state.read().create_physical_plan(&logical_plan).await?;
+        
+        let record_batches = session.state.read().execute_physical_plan(physical_plan).await?;
+        session.state.read().print_record_batches(&record_batches);
+
+        
+        //aggregate
+        println!("test aggregate with-groupby----");
+        let sql = "SELECT student_id, sum(score) from testdb.enroll group by student_id";
+        println!("the input sql: {}", sql);
+        let statement = parse(sql).unwrap();
+        let logical_plan = session.state.read().make_logical_plan(statement).await?;
+        println!("logical plan:{:?}", logical_plan);
+        let physical_plan = session.state.read().create_physical_plan(&logical_plan).await?;
+        let record_batches = session.state.read().execute_physical_plan(physical_plan).await?;
+        session.state.read().print_record_batches(&record_batches);
+        
         Ok(())
     }
 }

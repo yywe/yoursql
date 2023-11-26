@@ -2,7 +2,7 @@ use chrono::prelude::DateTime;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::time::{Duration, UNIX_EPOCH};
-#[derive(Serialize, Deserialize, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, PartialEq, PartialOrd)]
 pub enum DataValue {
     Null,
     Boolean(Option<bool>),
@@ -202,6 +202,34 @@ pub enum DataType {
 }
 
 
+impl TryFrom<&DataType> for DataValue {
+    type Error = anyhow::Error;
+    fn try_from(datatype: &DataType) -> Result<Self, Self::Error> {
+        Ok(match datatype {
+            DataType::Boolean => DataValue::Boolean(None),
+            DataType::Null => DataValue::Null,
+            DataType::Float32=>DataValue::Float32(None),
+            DataType::Float64=>DataValue::Float64(None),
+            DataType::Int8=>DataValue::Int8(None),
+            DataType::Int16=>DataValue::Int16(None),
+            DataType::Int32=>DataValue::Int32(None),
+            DataType::Int64=>DataValue::Int64(None),
+            DataType::UInt8=>DataValue::UInt8(None),
+            DataType::UInt16=>DataValue::UInt16(None),
+            DataType::UInt32=>DataValue::UInt32(None),
+            DataType::UInt64=>DataValue::UInt64(None),     
+            DataType::Utf8=>DataValue::Utf8(None),
+            DataType::Binary=>DataValue::Binary(None),
+            DataType::Date32=>DataValue::Date32(None),     
+            DataType::Date64=>DataValue::Date64(None), 
+            DataType::Time32Second=>DataValue::Time32Second(None), 
+            DataType::Time32Millisecond=>DataValue::Time32Millisecond(None), 
+            DataType::Time64Microsecond=>DataValue::Time64Microsecond(None), 
+            DataType::Time64Nanosecond=>DataValue::Time64Nanosecond(None),
+        })
+    }
+}
+
 impl DataValue {
     pub fn get_datatype(&self) -> DataType {
         match self {
@@ -231,6 +259,31 @@ impl DataValue {
     pub fn is_null(&self) -> bool {
         match self {
             DataValue::Null => true,
+            DataValue::Boolean(v) =>v.is_none(),
+            DataValue::Float32(v) => v.is_none(),
+            DataValue::Float64(v) =>  v.is_none(),
+            DataValue::Int8(v) =>  v.is_none(),
+            DataValue::Int16(v) =>  v.is_none(),
+            DataValue::Int32(v)=>  v.is_none(),
+            DataValue::Int64(v) =>  v.is_none(),
+            DataValue::UInt8(v)=>  v.is_none(),
+            DataValue::UInt16(v)=> v.is_none(),
+            DataValue::UInt32(v)=> v.is_none(),
+            DataValue::UInt64(v)=> v.is_none(),
+            DataValue::Utf8(v)=> v.is_none(),
+            DataValue::Binary(v)=> v.is_none(),
+            DataValue::Date32(v)=> v.is_none(),
+            DataValue::Date64(v)=> v.is_none(),
+            DataValue::Time32Second(v)=> v.is_none(),
+            DataValue::Time32Millisecond(v)=> v.is_none(),
+            DataValue::Time64Microsecond(v)=> v.is_none(),
+            DataValue::Time64Nanosecond(v)=> v.is_none(),
+        }
+    }
+
+    pub fn is_none(&self) -> bool {
+        match self {
+            DataValue::Null => false,
             DataValue::Boolean(v) =>v.is_none(),
             DataValue::Float32(v) => v.is_none(),
             DataValue::Float64(v) =>  v.is_none(),

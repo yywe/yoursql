@@ -49,7 +49,7 @@ impl ExecutionPlan for MemoryExec {
     fn children(&self) -> Vec<Arc<dyn ExecutionPlan>> {
         vec![]
     }
-    fn with_new_chilren(self: Arc<Self>, children: Vec<Arc<dyn ExecutionPlan>>) -> Result<Arc<dyn ExecutionPlan>> {
+    fn with_new_chilren(self: Arc<Self>, _children: Vec<Arc<dyn ExecutionPlan>>) -> Result<Arc<dyn ExecutionPlan>> {
         Err(anyhow!("children cannot be replaced for MemoryExec"))
     }
     fn execute(&self) -> Result<SendableRecordBatchStream> {

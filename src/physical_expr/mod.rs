@@ -10,6 +10,8 @@ use std::hash::{Hash, Hasher};
 
 pub mod planner;
 pub mod physical_expr;
+pub mod accumulator;
+pub mod aggregate;
 
 
 pub trait PhysicalExpr: Send + Sync + Display + Debug + PartialEq<dyn Any> {

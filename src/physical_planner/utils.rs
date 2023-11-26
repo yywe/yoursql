@@ -1,13 +1,14 @@
-use anyhow::{anyhow, Result};
+use super::ExecutionPlan;
 use crate::common::record_batch::RecordBatch;
+use crate::common::types::DataValue;
+use anyhow::{anyhow, Result};
 use core::future::Future;
 use futures::future::{BoxFuture, Shared};
+use futures::StreamExt;
 use futures::{ready, FutureExt};
 use parking_lot::Mutex;
 use std::sync::Arc;
 use std::task::{Context, Poll};
-use super::ExecutionPlan;
-use futures::StreamExt;
 
 type OnceFutPending<T> = Shared<BoxFuture<'static, SharedResult<Arc<T>>>>;
 pub type SharedResult<T> = core::result::Result<T, Arc<anyhow::Error>>;
@@ -89,9 +90,14 @@ impl<T> std::fmt::Debug for OnceAsync<T> {
 }
 impl<T: 'static> OnceAsync<T> {
     pub fn once<F, Fut>(&self, f: F) -> OnceFut<T>
-    where   F: FnOnce()->Fut,
-            Fut: Future<Output=Result<T>> + Send + 'static {
-        self.fut.lock().get_or_insert_with(||OnceFut::new(f())).clone()
+    where
+        F: FnOnce() -> Fut,
+        Fut: Future<Output = Result<T>> + Send + 'static,
+    {
+        self.fut
+            .lock()
+            .get_or_insert_with(|| OnceFut::new(f()))
+            .clone()
     }
 }
 
@@ -106,4 +112,18 @@ pub async fn collect_batch_stream(plan: Arc<dyn ExecutionPlan>) -> Result<Record
         schema: plan.schema(),
         rows: merged_rows,
     })
+}
+
+pub fn transpose_matrix(m: Vec<Vec<DataValue>>) -> Result<Vec<Vec<DataValue>>> {
+    let n_col = m.len();
+    if n_col <= 0 {
+        return Err(anyhow!("invalid number of columns {}", n_col));
+    }
+    let n_row = m[0].len();
+    if n_row <= 0 {
+        return Err(anyhow!("invalid number of rows {}", n_row));
+    }
+    Ok((0..n_row)
+        .map(|i| (0..n_col).map(|c| m[c][i].clone()).collect())
+        .collect())
 }
