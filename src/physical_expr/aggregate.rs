@@ -1,14 +1,16 @@
 use super::physical_expr::down_cast_any_ref;
 use crate::common::schema::Field;
 use crate::common::types::DataType;
+use crate::expr::expr::AggregateFunctionType;
 use crate::physical_expr::accumulator::{
     Accumulator, CountAccumulator, MaxAccumulator, MinAccumulator, SumAccumulator,AvgAccumulator
 };
 use crate::physical_expr::PhysicalExpr;
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use std::any::Any;
 use std::fmt::Debug;
 use std::sync::Arc;
+use crate::common::schema::Schema;
 
 pub trait AggregateExpr: Send + Sync + Debug + PartialEq<dyn Any> {
     fn as_any(&self) -> &dyn Any;
@@ -309,4 +311,34 @@ impl PartialEq<dyn Any> for Avg {
             })
             .unwrap_or(false)
     }
+}
+
+pub fn create_aggregate_expr_impl(fun: &AggregateFunctionType, distinct: bool, input_phy_exprs: &[Arc<dyn PhysicalExpr>], input_schema: &Schema, name: impl Into<String>) -> Result<Arc<dyn AggregateExpr>> {
+    let name = name.into();
+    let input_phy_types = input_phy_exprs.iter().map(|e|e.data_type(input_schema)).collect::<Result<Vec<_>>>()?;
+    let rt_type = return_type(fun, &input_phy_types)?;
+    let input_phy_exprs = input_phy_exprs.to_vec();
+    let rt_type = return_type(fun, &input_phy_types)?;
+    if distinct == true {
+        return Err(anyhow!("Unsupported distinct in aggregate expression"));
+    }
+    Ok(match fun {
+        AggregateFunctionType::Avg => Arc::new(Avg::new(input_phy_exprs[0].clone(), name, rt_type)),
+        AggregateFunctionType::Count => Arc::new(Count::new(input_phy_exprs, name, rt_type)),
+        AggregateFunctionType::Sum => Arc::new(Sum::new(input_phy_exprs[0].clone(), name, rt_type)),
+        AggregateFunctionType::Max => Arc::new(Max::new(input_phy_exprs[0].clone(), name, rt_type)),
+        AggregateFunctionType::Min => Arc::new(Min::new(input_phy_exprs[0].clone(), name, rt_type)),
+    })
+}
+
+///very simple implementation here, should consider input type and use max type
+///todo
+pub fn return_type(fun: &AggregateFunctionType, _inpu_expr_types: &[DataType]) -> Result<DataType> {
+    Ok(match fun {
+        AggregateFunctionType::Avg => DataType::Float64,
+        AggregateFunctionType::Count => DataType::Int64,
+        AggregateFunctionType::Sum => DataType::Float64,
+        AggregateFunctionType::Max => DataType::Float64,
+        AggregateFunctionType::Min => DataType::Float64,
+    })
 }

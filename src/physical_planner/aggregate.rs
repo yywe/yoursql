@@ -8,6 +8,7 @@ use crate::physical_expr::PhysicalExpr;
 use crate::physical_planner::utils::transpose_matrix;
 use anyhow::Result;
 use core::cmp::min;
+use futures::ready;
 use futures::stream::BoxStream;
 use futures::Stream;
 use futures::StreamExt;
@@ -425,10 +426,39 @@ fn evaluate_many(
 impl Stream for GroupedHashAggregateStream {
     type Item = Result<RecordBatch>;
     fn poll_next(
-        self: std::pin::Pin<&mut Self>,
+        mut self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> Poll<Option<Self::Item>> {
-        return Poll::Ready(None);
+        loop {
+            match self.exec_state {
+                ExecutionState::ReadingInput => match ready!(self.input.poll_next_unpin(cx)) {
+                    Some(Ok(batch)) => {
+                        let result = self.group_aggregate_batch(batch);
+                        if let Err(e) = result {
+                            return Poll::Ready(Some(Err(e)));
+                        }
+                    }
+                    Some(Err(e)) => return Poll::Ready(Some(Err(e))),
+                    None => {
+                        self.exec_state = ExecutionState::ProducingOutput;
+                    }
+                },
+                ExecutionState::ProducingOutput => {
+                    let result = self.create_batch_from_map();
+                    self.row_group_skip_position += self.batch_size;
+                    match result {
+                        Ok(Some(batch)) => {
+                            return Poll::Ready(Some(Ok(batch)));
+                        }
+                        Ok(None) => {
+                            self.exec_state = ExecutionState::Done;
+                        }
+                        Err(e) => return Poll::Ready(Some(Err(e))),
+                    }
+                }
+                ExecutionState::Done => return Poll::Ready(None),
+            }
+        }
     }
 }
 impl RecordBatchStream for GroupedHashAggregateStream {
