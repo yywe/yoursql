@@ -28,7 +28,7 @@ Build a database is a tough job with a huge amount of code. The main takeaway is
 - [x] Build Logical Plan: Logical Expression and Logical Operation
 - [x] Physical Plan: Projection, Filter
 - [x] Physical Plan: Join [Nested Loop; todo: HashJoin]
-- [ ] Physical Plan: Aggregate
+- [x] Physical Plan: Aggregate
 - [ ] Physical Plan: Sort
 - [ ] Physical Plan: Limit & Offset
 - [ ] Logical Optimizer
