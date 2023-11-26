@@ -316,7 +316,6 @@ impl PartialEq<dyn Any> for Avg {
 pub fn create_aggregate_expr_impl(fun: &AggregateFunctionType, distinct: bool, input_phy_exprs: &[Arc<dyn PhysicalExpr>], input_schema: &Schema, name: impl Into<String>) -> Result<Arc<dyn AggregateExpr>> {
     let name = name.into();
     let input_phy_types = input_phy_exprs.iter().map(|e|e.data_type(input_schema)).collect::<Result<Vec<_>>>()?;
-    let rt_type = return_type(fun, &input_phy_types)?;
     let input_phy_exprs = input_phy_exprs.to_vec();
     let rt_type = return_type(fun, &input_phy_types)?;
     if distinct == true {

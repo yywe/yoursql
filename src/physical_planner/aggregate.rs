@@ -496,6 +496,9 @@ fn create_schema(
             None,
         ))
     }
+    for expr in aggr_expr {
+        fields.push(expr.field()?)
+    }
     Ok(Schema::new(fields, HashMap::new()))
 }
 

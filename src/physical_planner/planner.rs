@@ -35,12 +35,12 @@ impl DefaultPhysicalPlanner {
         async move {
             let exec_plan: Result<Arc<dyn ExecutionPlan>> = match logical_plan {
                 LogicalPlan::TableScan(TableScan {
-                    table_name,
+                    table_name: _,
                     source,
                     projection,
-                    projected_schema,
+                    projected_schema: _,
                     filters,
-                    fetch,
+                    fetch: _,
                 }) => {
                     let filters = unnormlize_cols(filters.iter().cloned());
                     let unaliased: Vec<Expr> = filters.into_iter().map(unalias).collect();
@@ -228,7 +228,14 @@ fn create_physical_name(e: &Expr, is_first_expr: bool) -> Result<String> {
         }
         Expr::Alias(_, name) => Ok(name.clone()),
         Expr::Literal(value) => Ok(format!("{value:?}")),
-        _ => Err(anyhow!("todo")),
+        Expr::AggregateFunction(AggregateFunction{
+            fun,
+            distinct,
+            args,
+            ..
+        })=>create_function_physical_name(&fun.to_string(), *distinct, args),
+
+        other => Err(anyhow!(format!("todo add physical name for {other:?}"))),
     }
 }
 
@@ -240,6 +247,15 @@ fn tuple_err<T, R>(value: (Result<T>, Result<R>)) -> Result<(T, R)> {
         (Ok(_), Err(e2)) => Err(e2),
         (Err(e1), Err(_)) => Err(e1),
     }
+}
+
+fn create_function_physical_name(fun: &str, distinct: bool, args: &[Expr]) -> Result<String> {
+    let names: Vec<String> = args.iter().map(|e|create_physical_name(e, false)).collect::<Result<Vec<_>>>()?;
+    let distinct_str = match distinct {
+        true => "DISTINCT",
+        false=>"",
+    };
+    Ok(format!("{}({}{})", fun, distinct_str, names.join(",")))
 }
 
 fn create_aggregate_expr(e: &Expr, input_schema: &Schema) -> Result<Arc<dyn AggregateExpr>> {
