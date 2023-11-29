@@ -4,19 +4,23 @@ use super::projection::ProjectionExec;
 use super::ExecutionPlan;
 use super::PhysicalPlanner;
 use crate::common::schema::Schema;
+use crate::expr::expr;
 use crate::expr::expr::AggregateFunction;
 use crate::expr::expr::Expr;
 use crate::expr::expr_rewriter::unalias;
 use crate::expr::expr_rewriter::unnormlize_cols;
+use crate::expr::logical_plan::builder::build_join_schema;
 use crate::expr::logical_plan::builder::wrap_projection_for_join;
 use crate::expr::logical_plan::TableScan;
-use crate::expr::logical_plan::{Aggregate, CrossJoin, Join, Projection};
+use crate::expr::logical_plan::{Aggregate, CrossJoin, Join, Projection, Sort};
 use crate::physical_expr::aggregate::create_aggregate_expr_impl;
 use crate::physical_expr::aggregate::AggregateExpr;
 use crate::physical_expr::planner::create_physical_expr;
+use crate::physical_expr::sort::PhysicalSortExpr;
 use crate::physical_planner::aggregate::AggregateExec;
 use crate::physical_planner::cross_join::CrossJoinExec;
 use crate::physical_planner::filter::FilterExec;
+use crate::physical_planner::sort::SortExec;
 use crate::physical_planner::LogicalPlan;
 use crate::{physical_planner::DefaultPhysicalPlanner, session::SessionState};
 use anyhow::Context;
@@ -50,16 +54,17 @@ impl DefaultPhysicalPlanner {
                 }
                 LogicalPlan::Projection(Projection { input, exprs, .. }) => {
                     let input_exec = self.create_initial_plan(input, session_state).await?;
-                    let input_schema = input.as_ref().output_schema();
+                    let input_logischema = input.as_ref().output_schema();
                     let physical_exprs = exprs
                         .iter()
                         .map(|e| {
                             let physical_name = if let Expr::Column(col) = e {
-                                let index_of_column = input_schema
+                                let index_of_column = input_logischema
                                     .index_of_column_by_name(col.relation.as_ref(), &col.name)?
                                     .context(format!("failed to find column {:?}", col));
                                 match index_of_column {
                                     Ok(idx) => {
+                                        // here index physical schema field using logical field index
                                         Ok(input_exec.schema().field(idx).name().to_string())
                                     }
                                     Err(_) => physical_name(e),
@@ -68,7 +73,12 @@ impl DefaultPhysicalPlanner {
                                 physical_name(e)
                             };
                             tuple_err((
-                                self.create_physical_expr(e, input_schema.as_ref(), session_state),
+                                self.create_physical_expr(
+                                    e,
+                                    input_exec.schema().as_ref(),
+                                    input_logischema.as_ref(),
+                                    session_state,
+                                ),
                                 physical_name,
                             ))
                         })
@@ -82,9 +92,13 @@ impl DefaultPhysicalPlanner {
                     let physical_input = self
                         .create_initial_plan(&filter.input, session_state)
                         .await?;
-                    let input_schema = filter.input.output_schema();
-                    let physical_filter_expr =
-                        self.create_physical_expr(&filter.predicate, &input_schema, session_state)?;
+                    let input_logischema = filter.input.output_schema();
+                    let physical_filter_expr = self.create_physical_expr(
+                        &filter.predicate,
+                        physical_input.schema().as_ref(),
+                        &input_logischema,
+                        session_state,
+                    )?;
                     Ok(Arc::new(FilterExec::try_new(
                         physical_filter_expr,
                         physical_input,
@@ -102,7 +116,7 @@ impl DefaultPhysicalPlanner {
                     filter,
                     join_type,
                     null_equals_null,
-                    schema: join_schema,
+                    schema: join_logischema,
                     ..
                 }) => {
                     let _null_equals_null = *null_equals_null; //not used yet, used for hash join and sort merge
@@ -141,7 +155,7 @@ impl DefaultPhysicalPlanner {
                         // if we have projection, after the join with projection, we need to remove it
                         let join_plan = if added_project {
                             //extract original columns from original join_schema
-                            let final_join_result = join_schema
+                            let final_join_result = join_logischema
                                 .fields()
                                 .iter()
                                 .map(|f| Expr::Column(f.qualified_column()))
@@ -149,7 +163,7 @@ impl DefaultPhysicalPlanner {
                             let projection = Projection::try_new_with_schema(
                                 final_join_result,
                                 Arc::new(join_plan),
-                                join_schema.clone(),
+                                join_logischema.clone(),
                             )?;
                             LogicalPlan::Projection(projection)
                         } else {
@@ -160,10 +174,19 @@ impl DefaultPhysicalPlanner {
                     //all equivilent join are columns now
                     let physical_left = self.create_initial_plan(&left, session_state).await?;
                     let physical_right = self.create_initial_plan(&right, session_state).await?;
+
+                    let join_physchema = build_join_schema(
+                        physical_left.schema().as_ref(),
+                        physical_right.schema().as_ref(),
+                        join_type,
+                    )?;
                     let join_filter = match filter {
-                        Some(expr) => {
-                            Some(self.create_physical_expr(expr, join_schema, session_state)?)
-                        }
+                        Some(expr) => Some(self.create_physical_expr(
+                            expr,
+                            &join_physchema,
+                            join_logischema,
+                            session_state,
+                        )?),
                         _ => None,
                     };
                     Ok(Arc::new(NestedLoopJoinExec::try_new(
@@ -180,12 +203,18 @@ impl DefaultPhysicalPlanner {
                     ..
                 }) => {
                     let input_exec = self.create_initial_plan(input, session_state).await?;
-                    let input_schema = input_exec.schema();
+                    let input_physchema = input_exec.schema();
+                    let input_logischema = input.output_schema();
                     let g_expr = group_expr
                         .iter()
                         .map(|e| {
                             tuple_err((
-                                self.create_physical_expr(e, input_schema.as_ref(), session_state),
+                                self.create_physical_expr(
+                                    e,
+                                    input_physchema.as_ref(),
+                                    input_logischema.as_ref(),
+                                    session_state,
+                                ),
                                 physical_name(e),
                             ))
                         })
@@ -193,7 +222,13 @@ impl DefaultPhysicalPlanner {
                     let physical_group_by = PhysicalGroupBy::new(g_expr);
                     let physical_agg_exprs = aggr_expr
                         .iter()
-                        .map(|e| create_aggregate_expr(e, input_schema.as_ref()))
+                        .map(|e| {
+                            create_aggregate_expr(
+                                e,
+                                input_physchema.as_ref(),
+                                input_logischema.as_ref(),
+                            )
+                        })
                         .collect::<Result<Vec<_>>>()?;
                     Ok(Arc::new(AggregateExec::try_new(
                         physical_group_by,
@@ -201,7 +236,23 @@ impl DefaultPhysicalPlanner {
                         input_exec,
                     )?))
                 }
-
+                LogicalPlan::Sort(Sort { expr, input, fetch }) => {
+                    let physical_input = self.create_initial_plan(input, session_state).await?;
+                    let input_schema = physical_input.as_ref().schema();
+                    let input_logischema = input.output_schema();
+                    let sort_expr = expr
+                        .iter()
+                        .map(|e| {
+                            create_physical_sort_expr(
+                                e,
+                                input_schema.as_ref(),
+                                input_logischema.as_ref(),
+                            )
+                        })
+                        .collect::<Result<Vec<_>>>()?;
+                    let new_sort = SortExec::new(sort_expr, physical_input, *fetch);
+                    Ok(Arc::new(new_sort))
+                }
                 other => Err(anyhow!(format!(
                     "unsupported logical plan {:?} to physical plan yet",
                     other
@@ -228,13 +279,13 @@ fn create_physical_name(e: &Expr, is_first_expr: bool) -> Result<String> {
         }
         Expr::Alias(_, name) => Ok(name.clone()),
         Expr::Literal(value) => Ok(format!("{value:?}")),
-        Expr::AggregateFunction(AggregateFunction{
+        Expr::AggregateFunction(AggregateFunction {
             fun,
             distinct,
             args,
             ..
-        })=>create_function_physical_name(&fun.to_string(), *distinct, args),
-
+        }) => create_function_physical_name(&fun.to_string(), *distinct, args),
+        //todo
         other => Err(anyhow!(format!("todo add physical name for {other:?}"))),
     }
 }
@@ -250,15 +301,22 @@ fn tuple_err<T, R>(value: (Result<T>, Result<R>)) -> Result<(T, R)> {
 }
 
 fn create_function_physical_name(fun: &str, distinct: bool, args: &[Expr]) -> Result<String> {
-    let names: Vec<String> = args.iter().map(|e|create_physical_name(e, false)).collect::<Result<Vec<_>>>()?;
+    let names: Vec<String> = args
+        .iter()
+        .map(|e| create_physical_name(e, false))
+        .collect::<Result<Vec<_>>>()?;
     let distinct_str = match distinct {
         true => "DISTINCT",
-        false=>"",
+        false => "",
     };
     Ok(format!("{}({}{})", fun, distinct_str, names.join(",")))
 }
 
-fn create_aggregate_expr(e: &Expr, input_schema: &Schema) -> Result<Arc<dyn AggregateExpr>> {
+fn create_aggregate_expr(
+    e: &Expr,
+    input_schema: &Schema,
+    input_logischema: &Schema,
+) -> Result<Arc<dyn AggregateExpr>> {
     let (name, e) = match e {
         Expr::Alias(sub_expr, alias) => (alias.clone(), sub_expr.as_ref()),
         _ => (physical_name(e)?, e),
@@ -279,7 +337,7 @@ fn create_aggregate_expr(e: &Expr, input_schema: &Schema) -> Result<Arc<dyn Aggr
             }
             let args = args
                 .iter()
-                .map(|expr| create_physical_expr(expr, input_schema))
+                .map(|expr| create_physical_expr(expr, input_schema, input_logischema))
                 .collect::<Result<Vec<_>>>()?;
             let agg_expr = create_aggregate_expr_impl(fun, *distinct, &args, input_schema, name)?;
             Ok(agg_expr)
@@ -287,5 +345,26 @@ fn create_aggregate_expr(e: &Expr, input_schema: &Schema) -> Result<Arc<dyn Aggr
         other => Err(anyhow!(
             format!("unsupported aggregate function:{other:?}",)
         )),
+    }
+}
+
+pub fn create_physical_sort_expr(
+    e: &Expr,
+    input_schema: &Schema,
+    input_logischema: &Schema,
+) -> Result<PhysicalSortExpr> {
+    if let Expr::Sort(expr::Sort {
+        expr,
+        asc,
+        nulls_first,
+    }) = e
+    {
+        Ok(PhysicalSortExpr {
+            expr: create_physical_expr(expr, input_schema, input_logischema)?,
+            descending: !(*asc),
+            nulls_first: *nulls_first,
+        })
+    } else {
+        Err(anyhow!("Expect sort expression"))
     }
 }

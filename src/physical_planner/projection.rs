@@ -23,6 +23,7 @@ impl ProjectionExec {
     pub fn try_new(expr: Vec<(Arc<dyn PhysicalExpr>, String)>, input: Arc<dyn ExecutionPlan>) -> Result<Self> {
         let input_schema = input.schema();
         let fields: Result<Vec<Field>> = expr.iter().map(|(e, name)|{
+            // note projection will lose qualifier
             let mut field = Field::new(name, e.data_type(&input_schema)?, e.nullable(&input_schema)?, None);
             field.set_metadata(get_field_metadata(e, &input_schema).unwrap_or_default());
             Ok(field)

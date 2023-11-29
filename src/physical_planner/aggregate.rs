@@ -5,6 +5,7 @@ use crate::common::types::DataValue;
 use crate::physical_expr::accumulator::Accumulator;
 use crate::physical_expr::aggregate::AggregateExpr;
 use crate::physical_expr::PhysicalExpr;
+use crate::physical_planner::ExecutionState;
 use crate::physical_planner::utils::transpose_matrix;
 use anyhow::Result;
 use core::cmp::min;
@@ -182,11 +183,7 @@ impl AggregateStream {
     }
 }
 
-pub enum ExecutionState {
-    ReadingInput,
-    ProducingOutput,
-    Done,
-}
+
 
 pub struct GroupState {
     pub group_by_values: Vec<DataValue>,

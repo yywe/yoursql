@@ -7,6 +7,7 @@ pub mod cross_join;
 pub mod utils;
 pub mod nested_loop_join;
 pub mod aggregate;
+pub mod sort;
 
 use crate::common::schema::SchemaRef;
 use crate::common::record_batch::RecordBatch;
@@ -24,6 +25,13 @@ use std::sync::Arc;
 use crate::expr::expr::Expr;
 use crate::common::schema::Schema;
 use crate::physical_expr::PhysicalExpr;
+
+
+pub enum ExecutionState {
+    ReadingInput,
+    ProducingOutput,
+    Done,
+}
 
 /// note the item is Result of RecordBatch
 pub trait RecordBatchStream: Stream<Item=Result<RecordBatch>>{
@@ -58,7 +66,7 @@ pub async fn print_batch_stream(mut rs: Pin<Box<dyn RecordBatchStream + Send>>) 
 #[async_trait]
 pub trait PhysicalPlanner: Send + Sync {
     async fn create_physical_plan(&self, logical_plan: &LogicalPlan, session_state: &SessionState) -> Result<Arc<dyn ExecutionPlan>>;
-    fn create_physical_expr(&self, expr: &Expr, input_schema: &Schema, session_state: &SessionState) -> Result<Arc<dyn PhysicalExpr>>;
+    fn create_physical_expr(&self, expr: &Expr, input_schema: &Schema, input_logischema: &Schema, session_state: &SessionState) -> Result<Arc<dyn PhysicalExpr>>;
 }
 
 #[derive(Default)]
@@ -73,8 +81,8 @@ impl PhysicalPlanner for DefaultPhysicalPlanner {
         Ok(plan)
     }
 
-    fn create_physical_expr(&self, expr: &Expr, input_schema: &Schema, _session_state: &SessionState) -> Result<Arc<dyn PhysicalExpr>>{
-        create_physical_expr(expr, input_schema)
+    fn create_physical_expr(&self, expr: &Expr, input_schema: &Schema, input_logischema: &Schema, _session_state: &SessionState) -> Result<Arc<dyn PhysicalExpr>>{
+        create_physical_expr(expr, input_schema, input_logischema)
     }
 }
 

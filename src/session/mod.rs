@@ -310,6 +310,7 @@ pub mod test {
         let row_batch2 = vec![
             vec![DataValue::Int64(Some(3)), DataValue::Utf8(Some("Angela".into())), DataValue::Int8(Some(18)), DataValue::Utf8(Some("172 carolin street".into()))],
             vec![DataValue::Int64(Some(4)), DataValue::Utf8(Some("Jingya".into())), DataValue::Int8(Some(22)), DataValue::Utf8(Some("100 main street".into()))],
+            vec![DataValue::Int64(Some(5)), DataValue::Utf8(Some("Amy".into())), DataValue::Int8(Some(2)), DataValue::Utf8(Some("605-121 main street".into()))],
         ];
         let batch1 = RecordBatch {
             schema: table1_ref.clone(),
@@ -432,7 +433,7 @@ pub mod test {
         assert_eq!(fetch_batch1.rows.len(), 2);
         let fetch_batch2: RecordBatch = it.next().await.unwrap()?;
         //println!("2nd batch:{:?}", fetch_batch2);
-        assert_eq!(fetch_batch2.rows.len(), 2);
+        assert_eq!(fetch_batch2.rows.len(), 3);
         let done  = it.next().await;
         assert_eq!(true, done.is_none());
         Ok(())
@@ -503,6 +504,17 @@ pub mod test {
         let record_batches = session.state.read().execute_physical_plan(physical_plan).await?;
         session.state.read().print_record_batches(&record_batches);
         
+        //sort
+        println!("test sort");
+        let sql = "SELECT id, name, age from testdb.student order by id desc";
+        println!("the input sql: {}", sql);
+        let statement = parse(sql).unwrap();
+        let logical_plan = session.state.read().make_logical_plan(statement).await?;
+        println!("logical plan:{:?}", logical_plan);
+        let physical_plan = session.state.read().create_physical_plan(&logical_plan).await?;
+        let record_batches = session.state.read().execute_physical_plan(physical_plan).await?;
+        session.state.read().print_record_batches(&record_batches);
+
         Ok(())
     }
 }
