@@ -1,5 +1,5 @@
 # Motivation of Yoursql
-I have been a user of SQL for a long time (more than a decade) and has always been curious about the internals of a DBMS. Although database books talked about query parser, query plan, query execution, etc, I find there is a large gap between theory and implementation. As someone said, "talk is cheap, show me the code", I belive the best way to grasp the idea of DBMS is to implement one by yourself, then you will be able to uncover the magic.
+Yoursql is a learning project to explore SQL query engine.
 
 * Why use Rust?
 Just want to say Rust is very suitable for database development.
@@ -20,8 +20,6 @@ test session::test::test_physical_planner ... ok
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 16 filtered out; finished in 0.00s
 ```
 
-# Your Takeaway
-Build a database is a tough job with a huge amount of code. The main takeaway is to learn how a database is built gradually. You can use the skeleton code here to do your experiments. In the latest revision, I'm keep each dev branch named as "MILSTONEn-**". So if you want to start from scratch, start from MILSTONE1, if you want learn how to build logical plan, start from MILSTONE2, etc.
 
 # Todo List
 - [x] Basic Scaffold: Catalog, Table Scan
@@ -29,14 +27,13 @@ Build a database is a tough job with a huge amount of code. The main takeaway is
 - [x] Physical Plan: Projection, Filter
 - [x] Physical Plan: Join [Nested Loop; todo: HashJoin]
 - [x] Physical Plan: Aggregate
-- [ ] Physical Plan: Sort
-- [ ] Physical Plan: Limit & Offset
+- [x] Physical Plan: Sort
+- [x] Physical Plan: Limit & Offset
 - [ ] Logical Optimizer
 - [ ] Physical Optimizer
 - [ ] Storage Layer
 
 other minor finalization:  
-
 - [ ] create_name for physical expr (and display?), display for physical plan
 - [ ] create_physical_expr for more types.
 
