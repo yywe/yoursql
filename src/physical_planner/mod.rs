@@ -8,6 +8,7 @@ pub mod utils;
 pub mod nested_loop_join;
 pub mod aggregate;
 pub mod sort;
+pub mod limit;
 
 use crate::common::schema::SchemaRef;
 use crate::common::record_batch::RecordBatch;

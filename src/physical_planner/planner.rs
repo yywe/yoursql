@@ -1,4 +1,5 @@
 use super::aggregate::PhysicalGroupBy;
+use super::limit::LimitExec;
 use super::nested_loop_join::NestedLoopJoinExec;
 use super::projection::ProjectionExec;
 use super::ExecutionPlan;
@@ -12,7 +13,7 @@ use crate::expr::expr_rewriter::unnormlize_cols;
 use crate::expr::logical_plan::builder::build_join_schema;
 use crate::expr::logical_plan::builder::wrap_projection_for_join;
 use crate::expr::logical_plan::TableScan;
-use crate::expr::logical_plan::{Aggregate, CrossJoin, Join, Projection, Sort};
+use crate::expr::logical_plan::{Aggregate, CrossJoin, Join, Projection, Sort, Limit};
 use crate::physical_expr::aggregate::create_aggregate_expr_impl;
 use crate::physical_expr::aggregate::AggregateExpr;
 use crate::physical_expr::planner::create_physical_expr;
@@ -252,6 +253,10 @@ impl DefaultPhysicalPlanner {
                         .collect::<Result<Vec<_>>>()?;
                     let new_sort = SortExec::new(sort_expr, physical_input, *fetch);
                     Ok(Arc::new(new_sort))
+                }
+                LogicalPlan::Limit(Limit{skip, fetch, input})=>{
+                    let input = self.create_initial_plan(input, session_state).await?;
+                    Ok(Arc::new(LimitExec::new(input, *skip, *fetch)))
                 }
                 other => Err(anyhow!(format!(
                     "unsupported logical plan {:?} to physical plan yet",
