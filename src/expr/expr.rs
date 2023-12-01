@@ -167,6 +167,8 @@ pub enum Operator {
     Modulo,
     And,
     Or,
+    IsDistinctFrom,
+    IsNotDistinctFrom,
 }
 
 #[derive(Debug, Clone, Hash, Eq, PartialEq)]
@@ -208,6 +210,8 @@ impl Operator {
             | Operator::GtEq => 20,
             Operator::Plus | Operator::Minus => 30,
             Operator::Multiply | Operator::Divide | Operator::Modulo => 40,
+            Operator::IsDistinctFrom
+            | Operator::IsNotDistinctFrom =>0,
         }
     }
 }
@@ -243,6 +247,8 @@ impl std::fmt::Display for Operator {
             Operator::Modulo => "%",
             Operator::And => "AND",
             Operator::Or => "OR",
+            Operator::IsDistinctFrom =>"IS DISTINCT FROM",
+            Operator::IsNotDistinctFrom => "IS NOT DISTINCT FROM",
         };
         write!(f, "{display}")
     }

@@ -6,8 +6,9 @@ use super::ExecutionPlan;
 use super::PhysicalPlanner;
 use crate::common::schema::Schema;
 use crate::expr::expr;
-use crate::expr::expr::AggregateFunction;
+use crate::expr::expr::{Between, AggregateFunction, Like};
 use crate::expr::expr::Expr;
+use crate::expr::expr::BinaryExpr;
 use crate::expr::expr_rewriter::unalias;
 use crate::expr::expr_rewriter::unnormlize_cols;
 use crate::expr::logical_plan::builder::build_join_schema;
@@ -273,6 +274,7 @@ fn physical_name(e: &Expr) -> Result<String> {
     create_physical_name(e, true)
 }
 
+///given the logical expression, create a name for its physical expression
 fn create_physical_name(e: &Expr, is_first_expr: bool) -> Result<String> {
     match e {
         Expr::Column(c) => {
@@ -290,8 +292,80 @@ fn create_physical_name(e: &Expr, is_first_expr: bool) -> Result<String> {
             args,
             ..
         }) => create_function_physical_name(&fun.to_string(), *distinct, args),
-        //todo
-        other => Err(anyhow!(format!("todo add physical name for {other:?}"))),
+        Expr::BinaryExpr(BinaryExpr{left, op, right})=>{
+            let left = create_physical_name(left, false)?;
+            let right = create_physical_name(right, false)?;
+            Ok(format!("{left} {op} {right}"))
+        },
+        Expr::Not(expr) => {
+            let expr = create_physical_name(expr, false)?;
+            Ok(format!("NOT {expr}"))
+        }
+        Expr::IsNull(expr)=>{
+            let expr = create_physical_name(expr, false)?;
+            Ok(format!("{expr} IS NULL"))
+        }
+        Expr::IsNotNull(expr)=>{
+            let expr = create_physical_name(expr, false)?;
+            Ok(format!("{expr} IS NOT NULL"))
+        }
+        Expr::IsTrue(expr) => {
+            let expr = create_physical_name(expr, false)?;
+            Ok(format!("{expr} IS TRUE"))
+        }
+        Expr::IsNotTrue(expr)=>{
+            let expr = create_physical_name(expr, false)?;
+            Ok(format!("{expr} IS NOT TRUE"))
+        }
+        Expr::IsFalse(expr)=>{
+            let expr = create_physical_name(expr, false)?;
+            Ok(format!("{expr} IS FALSE"))
+        }
+        Expr::IsNotFalse(expr)=>{
+            let expr = create_physical_name(expr, false)?;
+            Ok(format!("{expr} IS NOT FALSE"))
+        }
+        Expr::Between(Between { expr, negated, low, high })=>{
+            let expr = create_physical_name(expr, false)?;
+            let low=create_physical_name(low, false)?;
+            let high = create_physical_name(high, false)?;
+            if *negated {
+                Ok(format!("{expr} NOT BETWEEN {low} and {high}"))
+            }else{
+                Ok(format!("{expr} BETWEEN {low} and {high}"))
+            }
+        }
+        Expr::Like(Like{negated, expr, pattern, escape_char})=>{
+            let expr = create_physical_name(expr, false)?;
+            let pattern = create_physical_name(pattern, false)?;
+            let escape = if let Some(char) = escape_char {
+                format!("CHAR '{char}'")
+            }else{
+                "".to_string()
+            };
+            if *negated {
+                Ok(format!("{expr} NOT LIKE {pattern}{escape}"))
+            }else{
+                Ok(format!("{expr} LIKE {pattern}{escape}"))
+            }
+        }
+        Expr::ILike(Like{negated, expr, pattern, escape_char})=>{
+            let expr = create_physical_name(expr, false)?;
+            let pattern = create_physical_name(pattern, false)?;
+            let escape = if let Some(char) = escape_char {
+                format!("CHAR '{char}'")
+            }else{
+                "".to_string()
+            };
+            if *negated {
+                Ok(format!("{expr} NOT ILIKE {pattern}{escape}"))
+            }else{
+                Ok(format!("{expr} ILIKE {pattern}{escape}"))
+            }
+        }
+        Expr::Sort{..}=>Err(anyhow!("create physical name does not support sort expression")),
+        Expr::Wildcard=>Err(anyhow!("create physical name does not support wildcard")),
+        Expr::QualifiedWildcard { .. }=>Err(anyhow!("create physical name does not support qualified wildcard")),
     }
 }
 

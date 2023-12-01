@@ -527,6 +527,18 @@ pub mod test {
         let record_batches = session.state.read().execute_physical_plan(physical_plan).await?;
         session.state.read().print_record_batches(&record_batches);
     
+    
+        //like opeartion
+        println!("test like expression");
+        let sql = "SELECT id, name, age, address from testdb.student where address like '%lin%'";
+        println!("the input sql: {}", sql);
+        let statement = parse(sql).unwrap();
+        let logical_plan = session.state.read().make_logical_plan(statement).await?;
+        println!("logical plan:{:?}", logical_plan);
+        let physical_plan = session.state.read().create_physical_plan(&logical_plan).await?;
+        let record_batches = session.state.read().execute_physical_plan(physical_plan).await?;
+        session.state.read().print_record_batches(&record_batches);
+
         Ok(())
     }
 }

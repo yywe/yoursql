@@ -6,6 +6,7 @@ use crate::expr::expr::Operator;
 use crate::expr::type_coercion::get_result_type;
 use anyhow::Context;
 use anyhow::{anyhow, Result};
+use regex::Regex;
 use std::any::Any;
 use std::fmt::Debug;
 use std::hash::{Hash, Hasher};
@@ -234,6 +235,8 @@ impl PhysicalExpr for BinaryExpr {
                     }
                     (_, _) => Err(anyhow!(format!("cannot AND {} and {}", l, r))),
                 },
+                Operator::IsDistinctFrom => Ok(DataValue::Boolean(Some(!l.eq(r)))),
+                Operator::IsNotDistinctFrom => Ok(DataValue::Boolean(Some(l.eq(r)))),
                 Operator::Or => match (l, r) {
                     (DataValue::Boolean(Some(v1)), DataValue::Boolean(Some(v2))) => {
                         Ok(DataValue::Boolean(Some(*v1 || *v2)))
@@ -270,6 +273,297 @@ impl PartialEq<dyn Any> for BinaryExpr {
             .map(|x| self.left.eq(&x.left) && self.op == x.op && self.right.eq(&x.right))
             .unwrap_or(false)
     }
+}
+
+#[derive(Debug, Hash)]
+pub struct IsNullExpr {
+    arg: Arc<dyn PhysicalExpr>,
+}
+impl IsNullExpr {
+    pub fn new(arg: Arc<dyn PhysicalExpr>) -> Self {
+        Self { arg }
+    }
+}
+
+impl std::fmt::Display for IsNullExpr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} IS NULL", self.arg)
+    }
+}
+impl PhysicalExpr for IsNullExpr {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn data_type(&self, input_schema: &Schema) -> Result<DataType> {
+        Ok(DataType::Boolean)
+    }
+    fn nullable(&self, input_schema: &Schema) -> Result<bool> {
+        Ok(false)
+    }
+    fn children(&self) -> Vec<Arc<dyn PhysicalExpr>> {
+        vec![self.arg.clone()]
+    }
+    fn with_new_children(
+        self: Arc<Self>,
+        children: Vec<Arc<dyn PhysicalExpr>>,
+    ) -> Result<Arc<dyn PhysicalExpr>> {
+        Ok(Arc::new(IsNullExpr::new(children[0].clone())))
+    }
+    fn evaluate(&self, batch: &RecordBatch) -> Result<Vec<DataValue>> {
+        let arg = self.arg.evaluate(batch)?;
+        Ok(arg
+            .into_iter()
+            .map(|x| DataValue::Boolean(Some(x.is_null())))
+            .collect::<Vec<_>>())
+    }
+    fn dyn_hash(&self, state: &mut dyn Hasher) {
+        let mut s = state;
+        self.hash(&mut s);
+    }
+}
+impl PartialEq<dyn Any> for IsNullExpr {
+    fn eq(&self, other: &dyn Any) -> bool {
+        down_cast_any_ref(other)
+            .downcast_ref::<Self>()
+            .map(|x| self.arg.eq(&x.arg))
+            .unwrap_or(false)
+    }
+}
+
+#[derive(Debug, Hash)]
+pub struct IsNotNullExpr {
+    arg: Arc<dyn PhysicalExpr>,
+}
+impl IsNotNullExpr {
+    pub fn new(arg: Arc<dyn PhysicalExpr>) -> Self {
+        Self { arg }
+    }
+}
+
+impl std::fmt::Display for IsNotNullExpr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} IS NOT NULL", self.arg)
+    }
+}
+impl PhysicalExpr for IsNotNullExpr {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn data_type(&self, input_schema: &Schema) -> Result<DataType> {
+        Ok(DataType::Boolean)
+    }
+    fn nullable(&self, input_schema: &Schema) -> Result<bool> {
+        Ok(false)
+    }
+    fn children(&self) -> Vec<Arc<dyn PhysicalExpr>> {
+        vec![self.arg.clone()]
+    }
+    fn with_new_children(
+        self: Arc<Self>,
+        children: Vec<Arc<dyn PhysicalExpr>>,
+    ) -> Result<Arc<dyn PhysicalExpr>> {
+        Ok(Arc::new(IsNotNullExpr::new(children[0].clone())))
+    }
+    fn evaluate(&self, batch: &RecordBatch) -> Result<Vec<DataValue>> {
+        let arg = self.arg.evaluate(batch)?;
+        Ok(arg
+            .into_iter()
+            .map(|x| DataValue::Boolean(Some(!x.is_null())))
+            .collect::<Vec<_>>())
+    }
+    fn dyn_hash(&self, state: &mut dyn Hasher) {
+        let mut s = state;
+        self.hash(&mut s);
+    }
+}
+impl PartialEq<dyn Any> for IsNotNullExpr {
+    fn eq(&self, other: &dyn Any) -> bool {
+        down_cast_any_ref(other)
+            .downcast_ref::<Self>()
+            .map(|x| self.arg.eq(&x.arg))
+            .unwrap_or(false)
+    }
+}
+
+#[derive(Debug, Hash)]
+pub struct NotExpr {
+    arg: Arc<dyn PhysicalExpr>,
+}
+impl NotExpr {
+    pub fn new(arg: Arc<dyn PhysicalExpr>) -> Self {
+        Self { arg }
+    }
+}
+
+impl std::fmt::Display for NotExpr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "NOT {}", self.arg)
+    }
+}
+impl PhysicalExpr for NotExpr {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn data_type(&self, input_schema: &Schema) -> Result<DataType> {
+        Ok(DataType::Boolean)
+    }
+    fn nullable(&self, input_schema: &Schema) -> Result<bool> {
+        self.arg.nullable(input_schema)
+    }
+    fn children(&self) -> Vec<Arc<dyn PhysicalExpr>> {
+        vec![self.arg.clone()]
+    }
+    fn with_new_children(
+        self: Arc<Self>,
+        children: Vec<Arc<dyn PhysicalExpr>>,
+    ) -> Result<Arc<dyn PhysicalExpr>> {
+        Ok(Arc::new(NotExpr::new(children[0].clone())))
+    }
+    fn evaluate(&self, batch: &RecordBatch) -> Result<Vec<DataValue>> {
+        let arg = self.arg.evaluate(batch)?;
+        arg.into_iter()
+            .map(|x| {
+                if x.is_null() {
+                    return Ok(DataValue::Boolean(None));
+                }
+                match x {
+                    DataValue::Boolean(Some(b)) => Ok(DataValue::Boolean(Some(!b))),
+                    _ => Err(anyhow!(format!("Not cannot be applied to value:{:?}", x))),
+                }
+            })
+            .collect::<Result<Vec<_>>>()
+    }
+    fn dyn_hash(&self, state: &mut dyn Hasher) {
+        let mut s = state;
+        self.hash(&mut s);
+    }
+}
+impl PartialEq<dyn Any> for NotExpr {
+    fn eq(&self, other: &dyn Any) -> bool {
+        down_cast_any_ref(other)
+            .downcast_ref::<Self>()
+            .map(|x| self.arg.eq(&x.arg))
+            .unwrap_or(false)
+    }
+}
+
+#[derive(Debug, Hash)]
+pub struct LikeExpr {
+    negated: bool,
+    case_sensitive: bool,
+    expr: Arc<dyn PhysicalExpr>,
+    pattern: Arc<dyn PhysicalExpr>,
+}
+
+impl LikeExpr {
+    pub fn new(
+        negated: bool,
+        case_sensitive: bool,
+        expr: Arc<dyn PhysicalExpr>,
+        pattern: Arc<dyn PhysicalExpr>,
+    ) -> Self {
+        Self {
+            negated,
+            case_sensitive,
+            expr,
+            pattern,
+        }
+    }
+    fn op_name(&self) -> &str {
+        match (self.negated, self.case_sensitive) {
+            (false, false) => "LIKE",
+            (true, false) => "NOT LIKE",
+            (false, true) => "ILIKE",
+            (true, true) => "NOT ILIKE",
+        }
+    }
+}
+impl std::fmt::Display for LikeExpr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} {} {}", self.expr, self.op_name(), self.pattern)
+    }
+}
+impl PhysicalExpr for LikeExpr {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn data_type(&self, input_schema: &Schema) -> Result<DataType> {
+        Ok(DataType::Boolean)
+    }
+    fn nullable(&self, input_schema: &Schema) -> Result<bool> {
+        Ok(self.expr.nullable(input_schema)? || self.pattern.nullable(input_schema)?)
+    }
+    fn children(&self) -> Vec<Arc<dyn PhysicalExpr>> {
+        vec![self.expr.clone(), self.pattern.clone()]
+    }
+    fn with_new_children(
+        self: Arc<Self>,
+        children: Vec<Arc<dyn PhysicalExpr>>,
+    ) -> Result<Arc<dyn PhysicalExpr>> {
+        Ok(Arc::new(LikeExpr::new(
+            self.negated,
+            self.case_sensitive,
+            children[0].clone(),
+            children[1].clone(),
+        )))
+    }
+    fn dyn_hash(&self, state: &mut dyn Hasher) {
+        let mut s = state;
+        self.hash(&mut s)
+    }
+    fn evaluate(&self, batch: &RecordBatch) -> Result<Vec<DataValue>> {
+        let expr_value = self.expr.evaluate(batch)?;
+        let pattern_value = self.pattern.evaluate(batch)?;
+        expr_value
+            .into_iter()
+            .zip(pattern_value.into_iter())
+            .map(|(value, pattern)| match (value, pattern) {
+                (DataValue::Utf8(Some(v)), DataValue::Utf8(Some(p))) => {
+                    return simple_like(&v, &p, self.case_sensitive);
+                }
+                (v1, v2) => {
+                    return Err(anyhow!(format!(
+                        "Invalid like for value of {:?} using pattern {:?}",
+                        v1, v2
+                    )))
+                }
+            })
+            .collect::<Result<Vec<_>>>()
+    }
+}
+impl PartialEq<dyn Any> for LikeExpr {
+    fn eq(&self, other: &dyn Any) -> bool {
+        down_cast_any_ref(other)
+            .downcast_ref::<Self>()
+            .map(|x| {
+                self.negated == x.negated
+                    && self.case_sensitive == x.case_sensitive
+                    && self.expr.eq(&x.expr)
+                    && self.pattern.eq(&x.pattern)
+            })
+            .unwrap_or(false)
+    }
+}
+
+/// simple like implemenatation based on regular expression (solution comes from toydb)
+/// in the case of apache datafusion, like is based on
+/// https://github.com/apache/arrow-rs/blob/master/arrow-string/src/like.rs
+///
+fn simple_like(value: &String, pattern: &String, case_sensitive: bool) -> Result<DataValue> {
+    let (value, pattern) = if case_sensitive == false {
+        (value.to_lowercase(), pattern.to_lowercase())
+    }else{
+        (value.clone(), pattern.clone())
+    };
+    let regexp = Regex::new(&format!(
+        "^{}$",
+        regex::escape(&pattern)
+            .replace("%", ".*")
+            .replace(".*.*", "%")
+            .replace("_", ".")
+            .replace("..", "_")
+    ))?;
+    Ok(DataValue::Boolean(Some(regexp.is_match(&value))))
 }
 
 /// at least one value must be string
