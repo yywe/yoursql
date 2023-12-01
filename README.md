@@ -21,7 +21,7 @@ test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 16 filtered out; fin
 ```
 
 
-# Todo List
+# Todo List (Priority High->Low)
 - [x] Basic Scaffold: Catalog, Table Scan
 - [x] Build Logical Plan: Logical Expression and Logical Operation
 - [x] Physical Plan: Projection, Filter
@@ -32,10 +32,8 @@ test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 16 filtered out; fin
 - [ ] Logical Optimizer
 - [ ] Physical Optimizer
 - [ ] Storage Layer
+- [ ] Integrate Query Engine into Server based on https://github.com/datafuselabs/opensrv
 
-other minor finalization:  
-- [ ] create_name for physical expr (and display?), display for physical plan
-- [ ] create_physical_expr for more types.
 
 
 

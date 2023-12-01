@@ -41,6 +41,8 @@ pub fn get_result_type(
         | Operator::Gt
         | Operator::GtEq
         | Operator::Lt
+        | Operator::IsDistinctFrom
+        | Operator::IsNotDistinctFrom
         | Operator::LtEq => Some(DataType::Boolean),
         Operator::Plus
         | Operator::Minus

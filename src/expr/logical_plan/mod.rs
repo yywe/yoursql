@@ -474,8 +474,8 @@ impl Filter {
         if let Ok(predicate_type) = predicate.get_type(input.output_schema().as_ref()) {
             if predicate_type != DataType::Boolean {
                 return Err(anyhow!(format!(
-                    "cannot create filter with non-boolean type {} ",
-                    predicate_type
+                    "cannot create filter with non-boolean type {}, predicate expr:{:?}",
+                    predicate_type, predicate
                 )));
             }
         }

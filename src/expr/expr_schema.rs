@@ -38,7 +38,7 @@ impl ExprToSchema for Expr {
             | Expr::Like(_)
             | Expr::ILike(_)
             | Expr::IsTrue(_)
-            | Expr::IsNotFalse(_) => Ok(DataType::Binary),
+            | Expr::IsNotFalse(_) => Ok(DataType::Boolean),
             Expr::BinaryExpr(BinaryExpr {
                 ref left,
                 ref right,
