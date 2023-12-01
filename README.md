@@ -1,5 +1,5 @@
 # Motivation of Yoursql
-Yoursql is a learning project to explore SQL query engine.
+Yoursql is a learning project to explore how SQL query engine is implemented in Rust language.
 
 * Why use Rust?
 Just want to say Rust is very suitable for database development.
