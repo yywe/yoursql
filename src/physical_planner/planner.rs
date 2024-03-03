@@ -14,7 +14,8 @@ use crate::expr::expr_rewriter::unnormlize_cols;
 use crate::expr::logical_plan::builder::build_join_schema;
 use crate::expr::logical_plan::builder::wrap_projection_for_join;
 use crate::expr::logical_plan::TableScan;
-use crate::expr::logical_plan::{Aggregate, CrossJoin, Join, Projection, Sort, Limit};
+use crate::expr::logical_plan::LogicalPlan;
+use crate::expr::logical_plan::{Aggregate, CrossJoin, Join, Projection, Sort, Limit, CreateTable};
 use crate::physical_expr::aggregate::create_aggregate_expr_impl;
 use crate::physical_expr::aggregate::AggregateExpr;
 use crate::physical_expr::planner::create_physical_expr;
@@ -23,7 +24,7 @@ use crate::physical_planner::aggregate::AggregateExec;
 use crate::physical_planner::cross_join::CrossJoinExec;
 use crate::physical_planner::filter::FilterExec;
 use crate::physical_planner::sort::SortExec;
-use crate::physical_planner::LogicalPlan;
+use crate::physical_planner::create_table::CreateTableExec;
 use crate::{physical_planner::DefaultPhysicalPlanner, session::SessionState};
 use anyhow::Context;
 use anyhow::{anyhow, Result};
@@ -258,6 +259,20 @@ impl DefaultPhysicalPlanner {
                 LogicalPlan::Limit(Limit{skip, fetch, input})=>{
                     let input = self.create_initial_plan(input, session_state).await?;
                     Ok(Arc::new(LimitExec::new(input, *skip, *fetch)))
+                }
+                LogicalPlan::CreateTable(CreateTable{name, fields})=>{
+                    let resolved_reference = name.clone().resolve(&session_state.config().catalog.default_database);
+                    let dbname = resolved_reference.database;
+                    let tblname = resolved_reference.table;
+                    match session_state.catalogs().database(&dbname) {
+                        Some(db)=>{
+                            if db.table_exist(&tblname) {
+                                return Err(anyhow!(format!("table {} already exist", tblname)))
+                            }
+                            Ok(Arc::new(CreateTableExec::new(dbname.to_string(), tblname.to_string(), fields.clone())))
+                        }
+                        None=>Err(anyhow!(format!("database {} does not exist", dbname)))
+                    }
                 }
                 other => Err(anyhow!(format!(
                     "unsupported logical plan {:?} to physical plan yet",

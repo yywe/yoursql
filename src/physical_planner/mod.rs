@@ -9,6 +9,7 @@ pub mod nested_loop_join;
 pub mod aggregate;
 pub mod sort;
 pub mod limit;
+pub mod create_table;
 
 use crate::common::schema::SchemaRef;
 use crate::common::record_batch::RecordBatch;
@@ -44,7 +45,7 @@ pub type SendableRecordBatchStream = Pin<Box<dyn RecordBatchStream + Send>>;
 pub trait ExecutionPlan: Debug + Send + Sync {
     fn as_any(&self) -> &dyn Any;
     fn schema(&self) -> SchemaRef;
-    fn execute(&self) -> Result<SendableRecordBatchStream>;
+    fn execute(&self, session_state: &SessionState) -> Result<SendableRecordBatchStream>;
     fn children(&self) -> Vec<Arc<dyn ExecutionPlan>>;
     fn with_new_chilren(self: Arc<Self>, children: Vec<Arc<dyn ExecutionPlan>>) -> Result<Arc<dyn ExecutionPlan>>;
 }

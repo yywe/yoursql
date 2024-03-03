@@ -77,7 +77,7 @@ async fn main() -> Result<()> {
 
     // scan the table and print the result
     let exec = table_ref.scan(&session.state(), None, &[]).await?;
-    let it: std::pin::Pin<Box<dyn RecordBatchStream + Send>> = exec.execute()?;
+    let it: std::pin::Pin<Box<dyn RecordBatchStream + Send>> = exec.execute(&session.state())?;
     print_batch_stream(it).await?;
     Ok(())
 }

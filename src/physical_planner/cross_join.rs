@@ -3,6 +3,7 @@ use crate::common::schema::{Schema, SchemaRef};
 use crate::physical_planner::utils::OnceAsync;
 use crate::physical_planner::utils::OnceFut;
 use crate::physical_planner::utils::collect_batch_stream;
+use crate::session::SessionState;
 use anyhow::Result;
 use async_trait::async_trait;
 use futures::StreamExt;
@@ -149,9 +150,10 @@ impl ExecutionPlan for CrossJoinExec {
             children[1].clone(),
         )?))
     }
-    fn execute(&self) -> Result<SendableRecordBatchStream> {
-        let stream = self.right.execute()?;
-        let left_fut = self.left_fut.once(|| collect_batch_stream(self.left.clone()));
+    fn execute(&self, state: &SessionState) -> Result<SendableRecordBatchStream> {
+        let stream = self.right.execute(state)?;
+        let state_cloned = state.clone();
+        let left_fut = self.left_fut.once(|| collect_batch_stream(self.left.clone(), state_cloned));
         Ok(Box::pin(CrossJoinStream {
             schema: self.schema.clone(),
             left_fut,

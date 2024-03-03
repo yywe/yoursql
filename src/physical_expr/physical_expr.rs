@@ -294,10 +294,10 @@ impl PhysicalExpr for IsNullExpr {
     fn as_any(&self) -> &dyn Any {
         self
     }
-    fn data_type(&self, input_schema: &Schema) -> Result<DataType> {
+    fn data_type(&self, _input_schema: &Schema) -> Result<DataType> {
         Ok(DataType::Boolean)
     }
-    fn nullable(&self, input_schema: &Schema) -> Result<bool> {
+    fn nullable(&self, _input_schema: &Schema) -> Result<bool> {
         Ok(false)
     }
     fn children(&self) -> Vec<Arc<dyn PhysicalExpr>> {
@@ -349,10 +349,10 @@ impl PhysicalExpr for IsNotNullExpr {
     fn as_any(&self) -> &dyn Any {
         self
     }
-    fn data_type(&self, input_schema: &Schema) -> Result<DataType> {
+    fn data_type(&self, _input_schema: &Schema) -> Result<DataType> {
         Ok(DataType::Boolean)
     }
-    fn nullable(&self, input_schema: &Schema) -> Result<bool> {
+    fn nullable(&self, _input_schema: &Schema) -> Result<bool> {
         Ok(false)
     }
     fn children(&self) -> Vec<Arc<dyn PhysicalExpr>> {
@@ -404,7 +404,7 @@ impl PhysicalExpr for NotExpr {
     fn as_any(&self) -> &dyn Any {
         self
     }
-    fn data_type(&self, input_schema: &Schema) -> Result<DataType> {
+    fn data_type(&self, _input_schema: &Schema) -> Result<DataType> {
         Ok(DataType::Boolean)
     }
     fn nullable(&self, input_schema: &Schema) -> Result<bool> {
@@ -487,7 +487,7 @@ impl PhysicalExpr for LikeExpr {
     fn as_any(&self) -> &dyn Any {
         self
     }
-    fn data_type(&self, input_schema: &Schema) -> Result<DataType> {
+    fn data_type(&self, _input_schema: &Schema) -> Result<DataType> {
         Ok(DataType::Boolean)
     }
     fn nullable(&self, input_schema: &Schema) -> Result<bool> {

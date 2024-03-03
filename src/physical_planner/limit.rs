@@ -3,6 +3,7 @@ use super::SendableRecordBatchStream;
 use crate::common::record_batch::RecordBatch;
 use crate::common::schema::SchemaRef;
 use crate::physical_planner::ExecutionPlan;
+use crate::session::SessionState;
 use anyhow::Result;
 use futures::Stream;
 use futures::StreamExt;
@@ -119,8 +120,8 @@ impl ExecutionPlan for LimitExec {
             self.fetch,
         )))
     }
-    fn execute(&self) -> Result<SendableRecordBatchStream> {
-        let input_stream = self.input.execute()?;
+    fn execute(&self, state: &SessionState) -> Result<SendableRecordBatchStream> {
+        let input_stream = self.input.execute(state)?;
         Ok(Box::pin(LimitStream::new(
             input_stream,
             self.skip,

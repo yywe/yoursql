@@ -6,6 +6,7 @@ use anyhow::{anyhow, Result};
 use futures::Stream;
 use futures::StreamExt;
 use std::sync::Arc;
+use crate::session::SessionState;
 
 use super::{ExecutionPlan, RecordBatchStream, SendableRecordBatchStream};
 
@@ -128,11 +129,11 @@ impl ExecutionPlan for FilterExec {
             children[0].clone(),
         )?))
     }
-    fn execute(&self) -> Result<SendableRecordBatchStream> {
+    fn execute(&self, session_state: &SessionState) -> Result<SendableRecordBatchStream> {
         Ok(Box::pin(FilterExecStream {
             schema: self.input.schema(),
             predicate: self.predicate.clone(),
-            input: self.input.execute()?,
+            input: self.input.execute(session_state)?,
         }))
     }
 }

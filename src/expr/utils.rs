@@ -176,6 +176,7 @@ pub fn from_plan(plan: &LogicalPlan, expr: &[Expr], inputs: &[LogicalPlan]) -> R
         LogicalPlan::SubqueryAlias(SubqueryAlias{alias,..})=>{
             Ok(LogicalPlan::SubqueryAlias(SubqueryAlias::try_new(inputs[0].clone(), alias.clone())?))
         }
+        LogicalPlan::CreateTable(_)=>Err(anyhow!("cannot do from create table plan"))
     }
 }
 

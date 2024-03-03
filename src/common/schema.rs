@@ -10,6 +10,11 @@ use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 use std::ops::Deref;
 use std::sync::Arc;
+
+lazy_static::lazy_static!{
+    pub static ref EMPTY_SCHEMA_REF: SchemaRef = Arc::new(Schema::empty());
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
 pub struct Field {
     name: String,
