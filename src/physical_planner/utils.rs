@@ -1,6 +1,7 @@
 use super::ExecutionPlan;
 use crate::common::record_batch::RecordBatch;
 use crate::common::types::DataValue;
+use crate::session::SessionState;
 use anyhow::{anyhow, Result};
 use core::future::Future;
 use futures::future::{BoxFuture, Shared};
@@ -101,8 +102,8 @@ impl<T: 'static> OnceAsync<T> {
     }
 }
 
-pub async fn collect_batch_stream(plan: Arc<dyn ExecutionPlan>) -> Result<RecordBatch> {
-    let stream = plan.execute()?;
+pub async fn collect_batch_stream(plan: Arc<dyn ExecutionPlan>, state: SessionState) -> Result<RecordBatch> {
+    let stream = plan.execute(&state)?;
     let batches: Vec<Result<RecordBatch>> = stream.collect().await;
     let mut merged_rows = Vec::new();
     for item in batches {

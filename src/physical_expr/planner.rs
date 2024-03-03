@@ -7,7 +7,6 @@ use crate::expr::expr::Operator;
 use crate::expr::expr::{binary_expr, Between, Like};
 use crate::physical_expr::physical_expr::{BinaryExpr, Column, Literal};
 use crate::physical_expr::physical_expr::{IsNotNullExpr, IsNullExpr, LikeExpr, NotExpr};
-use anyhow::anyhow;
 use anyhow::{Context, Result};
 use std::sync::Arc;
 

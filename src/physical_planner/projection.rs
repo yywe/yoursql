@@ -9,6 +9,7 @@ use crate::common::column::Column;
 use crate::common::schema::Field;
 use crate::common::schema::{SchemaRef,Schema};
 use std::collections::HashMap;
+use crate::session::SessionState;
 
 use super::{ExecutionPlan, SendableRecordBatchStream, RecordBatchStream};
 
@@ -54,11 +55,11 @@ impl ExecutionPlan for ProjectionExec {
     fn with_new_chilren(self: Arc<Self>, children: Vec<Arc<dyn ExecutionPlan>>) -> Result<Arc<dyn ExecutionPlan>> {
         Ok(Arc::new(ProjectionExec::try_new(self.expr.clone(), children[0].clone())?))
     }
-    fn execute(&self) -> Result<SendableRecordBatchStream> {
+    fn execute(&self, state: &SessionState) -> Result<SendableRecordBatchStream> {
         Ok(Box::pin(ProjectionStream{
             schema: self.schema.clone(),
             expr: self.expr.iter().map(|x|x.0.clone()).collect(),
-            input: self.input.execute()?,
+            input: self.input.execute(state)?,
         }))
     }
 }

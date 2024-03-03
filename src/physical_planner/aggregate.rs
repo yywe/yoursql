@@ -6,6 +6,7 @@ use crate::physical_expr::accumulator::Accumulator;
 use crate::physical_expr::aggregate::AggregateExpr;
 use crate::physical_expr::PhysicalExpr;
 use crate::physical_planner::ExecutionState;
+use crate::session::SessionState;
 use crate::physical_planner::utils::transpose_matrix;
 use anyhow::Result;
 use core::cmp::min;
@@ -119,9 +120,9 @@ fn finalize_aggregation(accumulators: &[Box<dyn Accumulator>]) -> Result<Vec<Vec
 
 /// in the case when there are no group by, there is only one single row in the final output
 impl AggregateStream {
-    pub fn new(agg: &AggregateExec) -> Result<Self> {
+    pub fn new(agg: &AggregateExec, state: &SessionState) -> Result<Self> {
         let agg_schema = Arc::clone(&agg.schema);
-        let input = agg.input.execute()?;
+        let input = agg.input.execute(state)?;
         let aggregate_expressions = aggregate_expressions(&agg.aggr_expr)?;
         let accumulators = create_accumulators(&agg.aggr_expr)?;
         let inner = AggregateStreamInner {
@@ -211,11 +212,11 @@ pub struct GroupedHashAggregateStream {
 }
 
 impl GroupedHashAggregateStream {
-    pub fn new(agg: &AggregateExec) -> Result<Self> {
+    pub fn new(agg: &AggregateExec, state: &SessionState) -> Result<Self> {
         let agg_schema = Arc::clone(&agg.schema);
         let agg_group_by = agg.group_by.clone();
         let batch_size = 2; //todo: let it be configurable
-        let input = agg.input.execute()?;
+        let input = agg.input.execute(state)?;
         let all_aggregate_expresions = aggregate_expressions(&agg.aggr_expr)?;
         let aggr_state = AggregationState {
             map: RawTable::with_capacity(0),
@@ -515,12 +516,12 @@ impl AggregateExec {
         })
     }
 
-    fn execute_typed(&self) -> Result<StreamType> {
+    fn execute_typed(&self, state: &SessionState) -> Result<StreamType> {
         if self.group_by.expr.is_empty() {
-            Ok(StreamType::AggregateStream(AggregateStream::new(self)?))
+            Ok(StreamType::AggregateStream(AggregateStream::new(self, state)?))
         } else {
             Ok(StreamType::GroupedHashAggregateStream(
-                GroupedHashAggregateStream::new(self)?,
+                GroupedHashAggregateStream::new(self, state)?,
             ))
         }
     }
@@ -569,8 +570,8 @@ impl ExecutionPlan for AggregateExec {
             children[0].clone(),
         )?))
     }
-    fn execute(&self) -> Result<SendableRecordBatchStream> {
-        self.execute_typed().map(|stream| stream.into())
+    fn execute(&self, state: &SessionState) -> Result<SendableRecordBatchStream> {
+        self.execute_typed(state).map(|stream| stream.into())
     }
 }
 

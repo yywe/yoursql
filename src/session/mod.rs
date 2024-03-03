@@ -146,7 +146,7 @@ impl SessionState {
 
     /// finally, execute the physical plan (optimized) and get result, i.e, vector of batch.
     pub async fn execute_physical_plan(&self, plan: Arc<dyn ExecutionPlan>) -> Result<Vec<RecordBatch>> {
-        let stream = plan.execute()?;
+        let stream = plan.execute(&self)?;
         stream.try_collect::<Vec<_>>().await
     }
 
@@ -426,7 +426,7 @@ pub mod test {
         let testdb = session.database("testdb").unwrap();
         let student_table = testdb.get_table("student").await.unwrap();
         let exec = student_table.scan(&session.state(), None, &[]).await?;
-        let mut it = exec.execute()?;
+        let mut it = exec.execute(&session.state())?;
         // note 1st unwrap is for option, 2nd the item of the stream is Result of RecordBatch, so use ?
         let fetch_batch1: RecordBatch = it.next().await.unwrap()?;
         //println!("first batch:{:?}", fetch_batch1);

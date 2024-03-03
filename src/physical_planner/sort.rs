@@ -12,6 +12,7 @@ use crate::common::types::DataValue;
 use crate::physical_expr::sort::PhysicalSortExpr;
 use crate::physical_planner::utils::transpose_matrix;
 use crate::physical_planner::ExecutionState;
+use crate::session::SessionState;
 use super::{ExecutionPlan, SendableRecordBatchStream, RecordBatchStream};
 
 #[derive(Debug)]
@@ -46,10 +47,10 @@ impl ExecutionPlan for SortExec {
         let new_sort = SortExec::new(self.expr.clone(), children[0].clone(), self.fetch.clone());
         Ok(Arc::new(new_sort))
     }
-    fn execute(&self) -> Result<SendableRecordBatchStream> {
+    fn execute(&self, state: &SessionState) -> Result<SendableRecordBatchStream> {
         //todo: let batch size configurable
         let batch_size = 2;
-        let input = self.input.execute()?;
+        let input = self.input.execute(state)?;
         Ok(Box::pin(InMemSorter::new(self.input.schema().clone(), input, self.expr.clone(), batch_size)))
     }
 }

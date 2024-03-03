@@ -5,6 +5,8 @@ use crate::common::schema::Schema;
 use crate::common::tree_node::TreeNodeVisitor;
 use crate::common::tree_node::{TreeNode, VisitRecursion};
 use crate::common::types::DataType;
+use crate::common::schema::Field;
+use crate::common::schema::EMPTY_SCHEMA_REF;
 use crate::expr::utils::from_plan;
 use crate::{
     common::{schema::SchemaRef, table_reference::OwnedTableReference},
@@ -34,6 +36,13 @@ pub enum LogicalPlan {
     EmptyRelation(EmptyRelation),
     Limit(Limit),
     SubqueryAlias(SubqueryAlias),
+    CreateTable(CreateTable),
+}
+
+#[derive(Clone, PartialEq, Eq, Hash)]
+pub struct CreateTable {
+    pub name: OwnedTableReference,
+    pub fields: Vec<Field>,
 }
 
 #[derive(Clone, PartialEq, Eq, Hash)]
@@ -198,6 +207,7 @@ impl LogicalPlan {
             LogicalPlan::Limit(Limit { input, .. }) => input.output_schema(),
             LogicalPlan::Projection(Projection { schema, .. }) => schema.clone(),
             LogicalPlan::SubqueryAlias(SubqueryAlias{schema,..}) => schema.clone(),
+            LogicalPlan::CreateTable(_)=>Arc::clone(&EMPTY_SCHEMA_REF),
         }
     }
 
@@ -213,6 +223,7 @@ impl LogicalPlan {
             LogicalPlan::Limit(Limit { input, .. }) => vec![input],
             LogicalPlan::TableScan { .. } | LogicalPlan::EmptyRelation { .. } => vec![],
             LogicalPlan::SubqueryAlias(SubqueryAlias{input,..}) => vec![input],
+            LogicalPlan::CreateTable(_)=>vec![],
         }
     }
 
@@ -338,6 +349,9 @@ impl LogicalPlan {
                     LogicalPlan::SubqueryAlias(SubqueryAlias{ref alias,..})=>{
                         write!(f, "SubqueryAlias: {alias}")
                     }
+                    LogicalPlan::CreateTable(CreateTable { ref name, ref fields })=>{
+                        write!(f, "Create Table: {}, Columns:({})", name, fields.iter().map(|c|c.name().to_owned()).collect::<Vec<_>>().join(","))
+                    }
                 }
             }
         }
@@ -418,7 +432,7 @@ impl LogicalPlan {
             }
             LogicalPlan::Sort(Sort { expr, .. }) => expr.iter().try_for_each(f),
             LogicalPlan::TableScan(TableScan { filters, .. }) => filters.iter().try_for_each(f),
-            LogicalPlan::EmptyRelation(_) | LogicalPlan::Limit(_) | LogicalPlan::CrossJoin(_)|LogicalPlan::SubqueryAlias(_) => {
+            LogicalPlan::EmptyRelation(_) | LogicalPlan::Limit(_) | LogicalPlan::CrossJoin(_)|LogicalPlan::SubqueryAlias(_) | LogicalPlan::CreateTable(_)=> {
                 Ok(())
             }
         }

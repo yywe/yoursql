@@ -3,6 +3,7 @@ use crate::common::schema::SchemaRef;
 use crate::common::record_batch::RecordBatch;
 use crate::physical_planner::ExecutionPlan;
 use crate::physical_planner::SendableRecordBatchStream;
+use crate::session::SessionState;
 use anyhow::{Result,anyhow};
 use futures::Stream;
 use std::any::Any;
@@ -10,6 +11,7 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::sync::Arc;
 
+#[allow(dead_code)]
 #[derive(Debug)]
 pub struct MemoryExec {
     table: SchemaRef,
@@ -52,7 +54,7 @@ impl ExecutionPlan for MemoryExec {
     fn with_new_chilren(self: Arc<Self>, _children: Vec<Arc<dyn ExecutionPlan>>) -> Result<Arc<dyn ExecutionPlan>> {
         Err(anyhow!("children cannot be replaced for MemoryExec"))
     }
-    fn execute(&self) -> Result<SendableRecordBatchStream> {
+    fn execute(&self, _state: &SessionState) -> Result<SendableRecordBatchStream> {
         Ok(Box::pin(MemoryStream::try_new(
             self.batches.clone(),
             self.projected_table.clone(),

@@ -1,5 +1,6 @@
 use super::{object_name_to_table_refernce, LogicalPlanner, PlannerContext};
 use crate::common::column::Column;
+use crate::common::schema::Field;
 use crate::common::schema::Schema;
 use crate::common::table_reference::TableReference;
 use crate::common::utils::extract_aliases;
@@ -18,31 +19,59 @@ use crate::expr::utils::extract_columns_from_expr;
 use crate::expr::utils::find_aggregate_exprs;
 //use crate::expr::utils::find_column_exprs;
 use crate::expr::expr::Sort;
-use sqlparser::ast::OrderByExpr;
+use crate::expr::logical_plan::CreateTable;
 use crate::logical_planner::utils::check_columns_satisfy_exprs;
 use crate::logical_planner::utils::expr_as_column_expr;
 use crate::logical_planner::utils::rebase_expr;
+use sqlparser::ast::{ColumnDef, OrderByExpr};
 
 use crate::{common::table_reference::OwnedTableReference, expr::logical_plan::LogicalPlan};
 use anyhow::{anyhow, Result};
 use sqlparser::ast::Expr as SQLExpr;
+use sqlparser::ast::Offset as SQLOffset;
 use sqlparser::ast::{
     Ident, ObjectName, Query, Select, SelectItem, SetExpr, TableAlias, TableFactor, TableWithJoins,
 };
 use sqlparser::ast::{Join, JoinConstraint};
 use std::collections::HashSet;
 use std::sync::Arc;
-use sqlparser::ast::Offset as SQLOffset;
 
 impl<'a, C: PlannerContext> LogicalPlanner<'a, C> {
     pub fn plan_query(&self, query: Query) -> Result<LogicalPlan> {
         //println!("plan query {:#?}", query);
         let set_expr = query.body;
         let plan = self.plan_set_expr(*set_expr)?;
-        //todo: add order_by and limit plan
         let plan = self.order_by(plan, query.order_by)?;
         let plan = self.limit(plan, query.offset, query.limit)?;
         Ok(plan)
+    }
+
+    pub fn plan_create_table(
+        &self,
+        table_name: ObjectName,
+        columns: Vec<ColumnDef>
+    ) -> Result<LogicalPlan> {
+        let table_reference = object_name_to_table_refernce(table_name, true)?;
+        let fields = columns
+            .into_iter()
+            .map(|cdf| {
+                let not_null = cdf
+                    .options
+                    .iter()
+                    .find(|opt| matches!(opt.option, sqlparser::ast::ColumnOption::NotNull))
+                    .is_some();
+                Ok(Field::new(
+                    cdf.name.value.clone(),
+                    (&cdf.data_type).try_into()?,
+                    !not_null,
+                    None,
+                ))
+            })
+            .collect::<Result<_>>()?;
+        Ok(LogicalPlan::CreateTable(CreateTable {
+            name: table_reference,
+            fields: fields,
+        }))
     }
 
     pub fn plan_set_expr(&self, set_expr: SetExpr) -> Result<LogicalPlan> {
@@ -271,9 +300,7 @@ impl<'a, C: PlannerContext> LogicalPlanner<'a, C> {
             sqlparser::ast::JoinOperator::FullOuter(constraint) => {
                 self.parse_join(left, right, constraint, JoinType::Full)
             }
-            sqlparser::ast::JoinOperator::CrossJoin => {
-                self.parse_cross_join(left, right)
-            }
+            sqlparser::ast::JoinOperator::CrossJoin => self.parse_cross_join(left, right),
             _ => {
                 return Err(anyhow!(
                     "unsupported join operator {:?}",
@@ -342,7 +369,7 @@ impl<'a, C: PlannerContext> LogicalPlanner<'a, C> {
         }
     }
 
-    fn parse_cross_join(&self, left: LogicalPlan, right: LogicalPlan)->Result<LogicalPlan> {
+    fn parse_cross_join(&self, left: LogicalPlan, right: LogicalPlan) -> Result<LogicalPlan> {
         LogicalPlanBuilder::from(left).cross_join(right)?.build()
     }
 
@@ -559,18 +586,21 @@ impl<'a, C: PlannerContext> LogicalPlanner<'a, C> {
 
     fn order_by(&self, plan: LogicalPlan, order_by: Vec<OrderByExpr>) -> Result<LogicalPlan> {
         if order_by.is_empty() {
-            return Ok(plan)
+            return Ok(plan);
         }
 
         let mut order_by_expr = vec![];
         for e in order_by.iter() {
             let OrderByExpr {
-                asc, expr, nulls_first
-            }=e;
+                asc,
+                expr,
+                nulls_first,
+            } = e;
             // not the input expr is ast expr
-            let expr = self.sql_expr_to_logical_expr(expr.clone(), plan.output_schema().as_ref())?;
+            let expr =
+                self.sql_expr_to_logical_expr(expr.clone(), plan.output_schema().as_ref())?;
             let asc = asc.unwrap_or(true);
-            order_by_expr.push(Expr::Sort(Sort{
+            order_by_expr.push(Expr::Sort(Sort {
                 expr: Box::new(expr),
                 asc: asc,
                 nulls_first: nulls_first.unwrap_or(!asc),
@@ -578,40 +608,44 @@ impl<'a, C: PlannerContext> LogicalPlanner<'a, C> {
         }
         LogicalPlanBuilder::from(plan).sort(order_by_expr)?.build()
     }
-    fn limit(&self, input: LogicalPlan, skip: Option<SQLOffset>, fetch: Option<SQLExpr>) -> Result<LogicalPlan> {
+    fn limit(
+        &self,
+        input: LogicalPlan,
+        skip: Option<SQLOffset>,
+        fetch: Option<SQLExpr>,
+    ) -> Result<LogicalPlan> {
         use crate::common::types::DataValue;
         if skip.is_none() && fetch.is_none() {
-            return Ok(input)
+            return Ok(input);
         }
         let skip = match skip {
-            Some(skip_expr) =>{
+            Some(skip_expr) => {
                 match self.ast_expr_to_expr(skip_expr.value, input.output_schema().as_ref())? {
-                    Expr::Literal(DataValue::Int64(Some(s)))=>{
-                        if s< 0 {
-                            return Err(anyhow!(format!("offset must >=0, got: {s}")))
+                    Expr::Literal(DataValue::Int64(Some(s))) => {
+                        if s < 0 {
+                            return Err(anyhow!(format!("offset must >=0, got: {s}")));
                         }
                         Ok(s as usize)
                     }
-                    _=>Err(anyhow!(format!("unexpected expression in offset clause")))
+                    _ => Err(anyhow!(format!("unexpected expression in offset clause"))),
                 }
             }?,
-            _=>0,
+            _ => 0,
         };
 
         let fetch = match fetch {
-            Some(limit_expr) if limit_expr != sqlparser::ast::Expr::Value(sqlparser::ast::Value::Null)=>{
+            Some(limit_expr)
+                if limit_expr != sqlparser::ast::Expr::Value(sqlparser::ast::Value::Null) =>
+            {
                 let n = match self.ast_expr_to_expr(limit_expr, input.output_schema().as_ref())? {
-                    Expr::Literal(DataValue::Int64(Some(n))) if n>=0 => {
-                        Ok(n as usize)
-                    }
-                    _=>Err(anyhow!(format!("limit cannot be negative")))
+                    Expr::Literal(DataValue::Int64(Some(n))) if n >= 0 => Ok(n as usize),
+                    _ => Err(anyhow!(format!("limit cannot be negative"))),
                 }?;
                 Some(n)
             }
-            _=>None,
+            _ => None,
         };
         LogicalPlanBuilder::from(input).limit(skip, fetch)?.build()
-
     }
 }
 

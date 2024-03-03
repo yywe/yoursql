@@ -4,6 +4,7 @@ use crate::common::schema::Schema;
 use crate::common::types::DataValue;
 use crate::expr::logical_plan::JoinType;
 use crate::physical_expr::PhysicalExpr;
+use crate::session::SessionState;
 use crate::physical_planner::utils::collect_batch_stream;
 use crate::physical_planner::utils::{OnceAsync, OnceFut};
 use crate::{expr::logical_plan::builder::build_join_schema, physical_planner::SchemaRef};
@@ -75,21 +76,22 @@ impl ExecutionPlan for NestedLoopJoinExec {
             &self.join_type,
         )?))
     }
-    fn execute(&self) -> Result<SendableRecordBatchStream> {
+    fn execute(&self, state: &SessionState) -> Result<SendableRecordBatchStream> {
         // for right and full join, left is inner table, right is outer table
         // otherwise (left, inner), right is the inner table, left is outer table
+        let state_cloned = state.clone();
         let (outer_table, inner_table) =
             if matches!(self.join_type, JoinType::Right | JoinType::Full) {
                 let inner_table = self
                     .inner_table
-                    .once(|| collect_batch_stream(self.left.clone()));
-                let outer_table = self.right.execute()?;
+                    .once(|| collect_batch_stream(self.left.clone(), state_cloned));
+                let outer_table = self.right.execute(state)?;
                 (outer_table, inner_table)
             } else {
                 let inner_table = self
                     .inner_table
-                    .once(|| collect_batch_stream(self.right.clone()));
-                let outer_table = self.left.execute()?;
+                    .once(|| collect_batch_stream(self.right.clone(),state_cloned));
+                let outer_table = self.left.execute(state)?;
                 (outer_table, inner_table)
             };
         Ok(Box::pin(NestedLoopJoinStream {

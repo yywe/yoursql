@@ -1,5 +1,6 @@
 use chrono::prelude::DateTime;
 use chrono::Utc;
+use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
 use std::time::{Duration, UNIX_EPOCH};
 #[derive(Serialize, Deserialize, Clone, PartialEq, PartialOrd)]
@@ -359,6 +360,31 @@ impl std::hash::Hash for DataValue{
             Time32Second(v)=>v.hash(state),
             Time64Microsecond(v)=>v.hash(state),
             Time64Nanosecond(v)=>v.hash(state),
+        }
+    }
+}
+
+impl TryFrom<&sqlparser::ast::DataType> for DataType {
+    type Error = anyhow::Error;
+    fn try_from(value: &sqlparser::ast::DataType) -> Result<Self, Self::Error> {
+        use sqlparser::ast::DataType::*;
+        match value {
+            Boolean=>Ok(DataType::Boolean),
+            Char(_)|Nvarchar(_)|Varchar(_)|Text|String =>Ok(DataType::Utf8),
+            Real=>Ok(DataType::Float32),
+            Double|Numeric(_)=>Ok(DataType::Float64),
+            TinyInt(_)=>Ok(DataType::Int8),
+            UnsignedTinyInt(_)=>Ok(DataType::UInt8),
+            SmallInt(_)=>Ok(DataType::Int16),
+            UnsignedSmallInt(_)=>Ok(DataType::UInt16),
+            Int(_)=>Ok(DataType::Int32),
+            UnsignedInt(_)=>Ok(DataType::UInt32),
+            BigInt(_)=>Ok(DataType::Int64),
+            UnsignedBigInt(_)=>Ok(DataType::UInt64),
+            Binary(_)=>Ok(DataType::Binary),
+            Date=>Ok(DataType::Date64),
+            Datetime(_)|Time(..)|Timestamp(..)=>Ok(DataType::Time32Millisecond),
+            _=>Err(anyhow!(format!("Cannot convert datatype {}", value)))
         }
     }
 }

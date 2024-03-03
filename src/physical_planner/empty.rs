@@ -9,6 +9,7 @@ use crate::physical_planner::SendableRecordBatchStream;
 use crate::common::schema::Schema;
 use super::memory::MemoryStream;
 use std::collections::HashMap;
+use crate::session::SessionState;
 use std::sync::Arc;
 
 #[derive(Debug)]
@@ -52,7 +53,7 @@ impl ExecutionPlan for EmptyExec {
     fn schema(&self) -> SchemaRef{
         self.table.clone()
     }
-    fn execute(&self) -> Result<SendableRecordBatchStream>{
+    fn execute(&self, _session_state: &SessionState) -> Result<SendableRecordBatchStream>{
         Ok(Box::pin(MemoryStream::try_new(self.data()?, self.schema(), None)?))
     }
     fn children(&self) -> Vec<Arc<dyn ExecutionPlan>> {
