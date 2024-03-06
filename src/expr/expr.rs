@@ -4,9 +4,9 @@ use crate::expr_vec_fmt;
 use anyhow::{anyhow, Result};
 use std::collections::HashSet;
 
-use crate::expr::utils::extract_columns_from_expr;
 use super::type_coercion::{coerce_types, NUMERICS};
 use crate::expr::type_coercion::signature;
+use crate::expr::utils::extract_columns_from_expr;
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Expr {
     Alias(Box<Expr>, String),
@@ -59,12 +59,12 @@ impl std::str::FromStr for AggregateFunctionType {
     type Err = anyhow::Error;
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         Ok(match s {
-            "count"=>AggregateFunctionType::Count,
+            "count" => AggregateFunctionType::Count,
             "sum" => AggregateFunctionType::Sum,
             "min" => AggregateFunctionType::Min,
             "max" => AggregateFunctionType::Max,
             "avg" => AggregateFunctionType::Avg,
-            _=>return Err(anyhow!("unsupported function name {}",s)),
+            _ => return Err(anyhow!("unsupported function name {}", s)),
         })
     }
 }
@@ -210,8 +210,7 @@ impl Operator {
             | Operator::GtEq => 20,
             Operator::Plus | Operator::Minus => 30,
             Operator::Multiply | Operator::Divide | Operator::Modulo => 40,
-            Operator::IsDistinctFrom
-            | Operator::IsNotDistinctFrom =>0,
+            Operator::IsDistinctFrom | Operator::IsNotDistinctFrom => 0,
         }
     }
 }
@@ -230,7 +229,6 @@ impl std::ops::Sub for Expr {
     }
 }
 
-
 impl std::fmt::Display for Operator {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let display = match &self {
@@ -247,7 +245,7 @@ impl std::fmt::Display for Operator {
             Operator::Modulo => "%",
             Operator::And => "AND",
             Operator::Or => "OR",
-            Operator::IsDistinctFrom =>"IS DISTINCT FROM",
+            Operator::IsDistinctFrom => "IS DISTINCT FROM",
             Operator::IsNotDistinctFrom => "IS NOT DISTINCT FROM",
         };
         write!(f, "{display}")
@@ -276,12 +274,16 @@ impl Expr {
 
     pub fn alias(self, name: impl Into<String>) -> Expr {
         match self {
-            Expr::Sort(Sort { expr, asc, nulls_first })=>Expr::Sort(Sort{
+            Expr::Sort(Sort {
+                expr,
+                asc,
+                nulls_first,
+            }) => Expr::Sort(Sort {
                 expr: Box::new(expr.alias(name)),
-                asc:asc,
-                nulls_first:nulls_first,
+                asc: asc,
+                nulls_first: nulls_first,
             }),
-            _=>Expr::Alias(Box::new(self), name.into()),
+            _ => Expr::Alias(Box::new(self), name.into()),
         }
     }
 
@@ -292,7 +294,11 @@ impl Expr {
         }
     }
     pub fn sort(self, asc: bool, nulls_first: bool) -> Expr {
-        Expr::Sort(Sort { expr: Box::new(self), asc: asc, nulls_first: nulls_first })
+        Expr::Sort(Sort {
+            expr: Box::new(self),
+            asc: asc,
+            nulls_first: nulls_first,
+        })
     }
 
     /// get all columns that are used in this expr

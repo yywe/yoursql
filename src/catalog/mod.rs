@@ -1,15 +1,16 @@
-use async_trait::async_trait;
-use std::sync::Arc;
 use crate::storage::Table;
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Result};
+use async_trait::async_trait;
 use dashmap::DashMap;
+use std::sync::Arc;
 
 #[async_trait]
 pub trait DB: Send + Sync {
     fn table_names(&self) -> Vec<String>;
     async fn get_table(&self, name: &str) -> Option<Arc<dyn Table>>;
     fn table_exist(&self, name: &str) -> bool;
-    fn register_table(&self, name: String, table: Arc<dyn Table>) -> Result<Option<Arc<dyn Table>>>;
+    fn register_table(&self, name: String, table: Arc<dyn Table>)
+        -> Result<Option<Arc<dyn Table>>>;
     fn deregister_table(&self, name: &str) -> Result<Option<Arc<dyn Table>>>;
 }
 
@@ -25,34 +26,40 @@ impl MemoryDB {
     }
 }
 
-impl Default for MemoryDB{
-    fn default()->Self {
+impl Default for MemoryDB {
+    fn default() -> Self {
         Self::new()
     }
 }
 
 #[async_trait]
 impl DB for MemoryDB {
-    fn table_names(&self) -> Vec<String>{
-        self.tables.iter().map(|table|table.key().clone()).collect()
+    fn table_names(&self) -> Vec<String> {
+        self.tables
+            .iter()
+            .map(|table| table.key().clone())
+            .collect()
     }
-    async fn get_table(&self, name: &str) -> Option<Arc<dyn Table>>{
-        self.tables.get(name).map(|table|table.value().clone())
+    async fn get_table(&self, name: &str) -> Option<Arc<dyn Table>> {
+        self.tables.get(name).map(|table| table.value().clone())
     }
-    fn table_exist(&self, name: &str) -> bool{
+    fn table_exist(&self, name: &str) -> bool {
         self.tables.contains_key(name)
     }
-    fn register_table(&self, name: String, table: Arc<dyn Table>) -> Result<Option<Arc<dyn Table>>>{
+    fn register_table(
+        &self,
+        name: String,
+        table: Arc<dyn Table>,
+    ) -> Result<Option<Arc<dyn Table>>> {
         if self.table_exist(name.as_str()) {
             return Err(anyhow!(format!("The table {name} already exist")));
         }
         Ok(self.tables.insert(name, table))
     }
-    fn deregister_table(&self, name: &str) -> Result<Option<Arc<dyn Table>>>{
-        Ok(self.tables.remove(name).map(|(_, table)|table))
+    fn deregister_table(&self, name: &str) -> Result<Option<Arc<dyn Table>>> {
+        Ok(self.tables.remove(name).map(|(_, table)| table))
     }
 }
-
 
 pub trait DBList: Send + Sync {
     fn register_database(&self, name: String, database: Arc<dyn DB>) -> Option<Arc<dyn DB>>;
@@ -79,13 +86,13 @@ impl Default for MemoryDBList {
 }
 
 impl DBList for MemoryDBList {
-    fn register_database(&self, name: String, database: Arc<dyn DB>) -> Option<Arc<dyn DB>>{
+    fn register_database(&self, name: String, database: Arc<dyn DB>) -> Option<Arc<dyn DB>> {
         self.databases.insert(name, database)
     }
-    fn database_names(&self) -> Vec<String>{
-        self.databases.iter().map(|c|c.key().clone()).collect()
+    fn database_names(&self) -> Vec<String> {
+        self.databases.iter().map(|c| c.key().clone()).collect()
     }
-    fn database(&self, name: &str) -> Option<Arc<dyn DB>>{
-        self.databases.get(name).map(|c|c.value().clone())
+    fn database(&self, name: &str) -> Option<Arc<dyn DB>> {
+        self.databases.get(name).map(|c| c.value().clone())
     }
 }

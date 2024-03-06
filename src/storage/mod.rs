@@ -1,21 +1,26 @@
-use crate::{common::schema::SchemaRef, session::SessionState, physical_planner::ExecutionPlan};
-use std::any::Any;
-use async_trait::async_trait;
+use crate::common::record_batch::RecordBatch;
 use crate::expr::expr::Expr;
+use crate::{common::schema::SchemaRef, physical_planner::ExecutionPlan, session::SessionState};
 use anyhow::Result;
+use async_trait::async_trait;
+use std::any::Any;
 use std::sync::Arc;
-
 
 pub mod empty;
 pub mod memory;
 
 #[async_trait]
-pub trait Table: Sync + Send{
+pub trait Table: Sync + Send {
     fn get_table(&self) -> SchemaRef;
     fn as_any(&self) -> &dyn Any;
-    async fn scan(&self, state: &SessionState, projection: Option<&Vec<usize>>, filters: &[Expr])->Result<Arc<dyn ExecutionPlan>>;
+    async fn scan(
+        &self,
+        state: &SessionState,
+        projection: Option<&Vec<usize>>,
+        filters: &[Expr],
+    ) -> Result<Arc<dyn ExecutionPlan>>;
+    fn insert(&self, batch: RecordBatch) -> Result<usize>;
 }
-
 
 pub fn project_table(table: &SchemaRef, projection: Option<&Vec<usize>>) -> Result<SchemaRef> {
     let new_table = match projection {

@@ -1,16 +1,16 @@
 use super::physical_expr::down_cast_any_ref;
 use crate::common::schema::Field;
+use crate::common::schema::Schema;
 use crate::common::types::DataType;
 use crate::expr::expr::AggregateFunctionType;
 use crate::physical_expr::accumulator::{
-    Accumulator, CountAccumulator, MaxAccumulator, MinAccumulator, SumAccumulator,AvgAccumulator
+    Accumulator, AvgAccumulator, CountAccumulator, MaxAccumulator, MinAccumulator, SumAccumulator,
 };
 use crate::physical_expr::PhysicalExpr;
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Result};
 use std::any::Any;
 use std::fmt::Debug;
 use std::sync::Arc;
-use crate::common::schema::Schema;
 
 pub trait AggregateExpr: Send + Sync + Debug + PartialEq<dyn Any> {
     fn as_any(&self) -> &dyn Any;
@@ -313,9 +313,18 @@ impl PartialEq<dyn Any> for Avg {
     }
 }
 
-pub fn create_aggregate_expr_impl(fun: &AggregateFunctionType, distinct: bool, input_phy_exprs: &[Arc<dyn PhysicalExpr>], input_schema: &Schema, name: impl Into<String>) -> Result<Arc<dyn AggregateExpr>> {
+pub fn create_aggregate_expr_impl(
+    fun: &AggregateFunctionType,
+    distinct: bool,
+    input_phy_exprs: &[Arc<dyn PhysicalExpr>],
+    input_schema: &Schema,
+    name: impl Into<String>,
+) -> Result<Arc<dyn AggregateExpr>> {
     let name = name.into();
-    let input_phy_types = input_phy_exprs.iter().map(|e|e.data_type(input_schema)).collect::<Result<Vec<_>>>()?;
+    let input_phy_types = input_phy_exprs
+        .iter()
+        .map(|e| e.data_type(input_schema))
+        .collect::<Result<Vec<_>>>()?;
     let input_phy_exprs = input_phy_exprs.to_vec();
     let rt_type = return_type(fun, &input_phy_types)?;
     if distinct == true {

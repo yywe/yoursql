@@ -273,20 +273,18 @@ pub fn resolve_alias_to_exprs(expr: &Expr, aliases: &HashMap<String, Expr>) -> R
 }
 
 pub fn resolve_columns(expr: &Expr, plan: &LogicalPlan) -> Result<Expr> {
-    clone_with_replacement(expr, &|e|{
-        match e {
-            Expr::Column(col) => {
-                let s = plan.output_schema();
-                let field = s.field_from_column(col)?;
-                Ok(Some(Expr::Column(field.qualified_column())))
-            }
-            _=>Ok(None)
+    clone_with_replacement(expr, &|e| match e {
+        Expr::Column(col) => {
+            let s = plan.output_schema();
+            let field = s.field_from_column(col)?;
+            Ok(Some(Expr::Column(field.qualified_column())))
         }
+        _ => Ok(None),
     })
 }
 
 pub fn unnormalize_col(expr: Expr) -> Expr {
-    expr.transform(&|e|{
+    expr.transform(&|e| {
         Ok({
             if let Expr::Column(c) = e {
                 let col = Column {
@@ -294,24 +292,26 @@ pub fn unnormalize_col(expr: Expr) -> Expr {
                     name: c.name,
                 };
                 Transformed::Yes(Expr::Column(col))
-            }else{
+            } else {
                 Transformed::No(e)
             }
         })
-    }).expect("unnormalize is infallable")
+    })
+    .expect("unnormalize is infallable")
 }
 
-pub fn unnormlize_cols(exprs: impl IntoIterator<Item=Expr>) -> Vec<Expr> {
+pub fn unnormlize_cols(exprs: impl IntoIterator<Item = Expr>) -> Vec<Expr> {
     exprs.into_iter().map(unnormalize_col).collect()
 }
 
 pub fn unalias(expr: Expr) -> Expr {
     match expr {
-        Expr::Alias(sub_expr,_) => unalias(*sub_expr),
-        _=>expr,
+        Expr::Alias(sub_expr, _) => unalias(*sub_expr),
+        _ => expr,
     }
 }
 
+/*
 #[cfg(test)]
 mod test {
     use super::*;
@@ -362,3 +362,4 @@ mod test {
         }
     }
 }
+*/

@@ -2,12 +2,12 @@ use crate::common::{
     schema::{ColumnMeta, Field, Schema},
     types::DataType,
 };
-use crate::expr::expr::BinaryExpr;
 use crate::expr::expr::AggregateFunction;
-use crate::expr::logical_plan::LogicalPlan;
-use crate::expr::logical_plan::Aggregate;
-use crate::expr::expr::{Expr,Sort};
 use crate::expr::expr::AggregateFunctionType;
+use crate::expr::expr::BinaryExpr;
+use crate::expr::expr::{Expr, Sort};
+use crate::expr::logical_plan::Aggregate;
+use crate::expr::logical_plan::LogicalPlan;
 use anyhow::{anyhow, Result};
 
 use super::type_coercion::get_result_type;
@@ -45,12 +45,15 @@ impl ExprToSchema for Expr {
                 ref op,
             }) => get_result_type(&left.get_type(schema)?, op, &right.get_type(schema)?),
             Expr::Wildcard => Ok(DataType::Null),
-            Expr::Sort(Sort{expr,..})=>expr.get_type(schema),
+            Expr::Sort(Sort { expr, .. }) => expr.get_type(schema),
             Expr::QualifiedWildcard { .. } => Err(anyhow!(
                 "qualified wildcard should not exist in logical query plan"
             )),
-            Expr::AggregateFunction(AggregateFunction{fun, args,..})=>{
-                let data_types = args.iter().map(|e|e.get_type(schema)).collect::<Result<Vec<_>>>()?;
+            Expr::AggregateFunction(AggregateFunction { fun, args, .. }) => {
+                let data_types = args
+                    .iter()
+                    .map(|e| e.get_type(schema))
+                    .collect::<Result<Vec<_>>>()?;
                 AggregateFunctionType::return_type(fun, &data_types)
             }
         }
@@ -60,7 +63,9 @@ impl ExprToSchema for Expr {
         use crate::expr::expr::Between;
         use crate::expr::expr::Like;
         match self {
-            Expr::Alias(expr, _) | Expr::Not(expr) | Expr::Sort(Sort{expr,..}) => expr.nullable(schema),
+            Expr::Alias(expr, _) | Expr::Not(expr) | Expr::Sort(Sort { expr, .. }) => {
+                expr.nullable(schema)
+            }
             Expr::Column(c) => schema.nullable(c),
             Expr::Literal(value) => Ok(value.is_null()),
             Expr::IsNull(_)
@@ -76,7 +81,7 @@ impl ExprToSchema for Expr {
             Expr::QualifiedWildcard { .. } => Err(anyhow!(
                 "qualified wildcard are not valid in logical query plan"
             )),
-            Expr::AggregateFunction{..}=>Ok(true),
+            Expr::AggregateFunction { .. } => Ok(true),
             Expr::BinaryExpr(BinaryExpr {
                 ref left,
                 ref right,
@@ -107,43 +112,43 @@ impl ExprToSchema for Expr {
         if this_type == *cast_to_type {
             return Ok(self);
         }
-        return Err(anyhow!(
-            "data type cast not supported yet"
-        ))
+        return Err(anyhow!("data type cast not supported yet"));
     }
 }
-
-
 
 /// given a list of expressions and the relevant input logical plan, generate a list of fields
 /// plan is the input plan node
-pub fn exprlist_to_fields<'a>(exprs: impl IntoIterator<Item = &'a Expr>, plan: &LogicalPlan) -> Result<Vec<Field>> {
+pub fn exprlist_to_fields<'a>(
+    exprs: impl IntoIterator<Item = &'a Expr>,
+    plan: &LogicalPlan,
+) -> Result<Vec<Field>> {
     let exprs = exprs.into_iter().cloned().collect::<Vec<Expr>>();
     let fields = match plan {
-        LogicalPlan::Aggregate(agg)=>{
-            Some(expr_list_to_fields_aggregate(&exprs, plan, agg))
-        }
-        _ => None
+        LogicalPlan::Aggregate(agg) => Some(expr_list_to_fields_aggregate(&exprs, plan, agg)),
+        _ => None,
     };
     if let Some(fields) = fields {
         fields
-    }else{
+    } else {
         let res_schema = plan.output_schema();
-        exprs.iter().map(|e|e.to_field(&res_schema)).collect()
+        exprs.iter().map(|e| e.to_field(&res_schema)).collect()
     }
 }
 
-
 /// given expressions and a aggregate plan, generate the list of fields
-fn expr_list_to_fields_aggregate(exprs: &[Expr], plan: &LogicalPlan, agg: &Aggregate)->Result<Vec<Field>> {
+fn expr_list_to_fields_aggregate(
+    exprs: &[Expr],
+    plan: &LogicalPlan,
+    agg: &Aggregate,
+) -> Result<Vec<Field>> {
     let agg_cols = agg_cols(agg);
     let mut fields = vec![];
     for expr in exprs {
         match expr {
-            Expr::Column(c) if agg_cols.iter().any(|x| x==c) => {
+            Expr::Column(c) if agg_cols.iter().any(|x| x == c) => {
                 fields.push(expr.to_field(agg.input.output_schema().as_ref())?);
-            },
-            _=>fields.push(expr.to_field(plan.output_schema().as_ref())?),
+            }
+            _ => fields.push(expr.to_field(plan.output_schema().as_ref())?),
         }
     }
     Ok(fields)

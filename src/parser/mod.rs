@@ -16,7 +16,7 @@ pub fn parse(sql: &str) -> Result<Statement, ParserError> {
 mod test {
     use super::*;
     #[test]
-    fn test_parse(){
+    fn test_parse() {
         let sql = "SELECT a, b, 123, myfunc(b) \
         FROM table_1 \
         WHERE a > b AND b < 100 \

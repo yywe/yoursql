@@ -1,7 +1,6 @@
-
-use std::sync::Arc;
 use crate::physical_expr::PhysicalExpr;
 use core::hash::Hash;
+use std::sync::Arc;
 
 #[derive(Clone, Debug)]
 pub struct PhysicalSortExpr {
@@ -12,7 +11,9 @@ pub struct PhysicalSortExpr {
 
 impl PartialEq for PhysicalSortExpr {
     fn eq(&self, other: &Self) -> bool {
-        self.expr.eq(&other.expr) && self.descending == other.descending && self.nulls_first == other.nulls_first
+        self.expr.eq(&other.expr)
+            && self.descending == other.descending
+            && self.nulls_first == other.nulls_first
     }
 }
 

@@ -1,15 +1,15 @@
 use super::RecordBatchStream;
-use crate::common::schema::SchemaRef;
 use crate::common::record_batch::RecordBatch;
+use crate::common::schema::SchemaRef;
 use crate::physical_planner::ExecutionPlan;
 use crate::physical_planner::SendableRecordBatchStream;
 use crate::session::SessionState;
-use anyhow::{Result,anyhow};
+use anyhow::{anyhow, Result};
 use futures::Stream;
 use std::any::Any;
 use std::pin::Pin;
-use std::task::{Context, Poll};
 use std::sync::Arc;
+use std::task::{Context, Poll};
 
 #[allow(dead_code)]
 #[derive(Debug)]
@@ -51,7 +51,10 @@ impl ExecutionPlan for MemoryExec {
     fn children(&self) -> Vec<Arc<dyn ExecutionPlan>> {
         vec![]
     }
-    fn with_new_chilren(self: Arc<Self>, _children: Vec<Arc<dyn ExecutionPlan>>) -> Result<Arc<dyn ExecutionPlan>> {
+    fn with_new_chilren(
+        self: Arc<Self>,
+        _children: Vec<Arc<dyn ExecutionPlan>>,
+    ) -> Result<Arc<dyn ExecutionPlan>> {
         Err(anyhow!("children cannot be replaced for MemoryExec"))
     }
     fn execute(&self, _state: &SessionState) -> Result<SendableRecordBatchStream> {

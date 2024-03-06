@@ -46,7 +46,6 @@ async fn main() -> Result<()> {
         }
         // SQL statement
         else {
-            println!("{}", command);
             let statement = match parse(&command) {
                 Ok(statement) => statement,
                 Err(err) => {

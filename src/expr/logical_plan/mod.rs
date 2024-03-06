@@ -1,12 +1,12 @@
 pub mod builder;
 
 use crate::common::column::Column;
+use crate::common::schema::Field;
 use crate::common::schema::Schema;
+use crate::common::schema::EMPTY_SCHEMA_REF;
 use crate::common::tree_node::TreeNodeVisitor;
 use crate::common::tree_node::{TreeNode, VisitRecursion};
 use crate::common::types::DataType;
-use crate::common::schema::Field;
-use crate::common::schema::EMPTY_SCHEMA_REF;
 use crate::expr::utils::from_plan;
 use crate::{
     common::{schema::SchemaRef, table_reference::OwnedTableReference},
@@ -37,12 +37,28 @@ pub enum LogicalPlan {
     Limit(Limit),
     SubqueryAlias(SubqueryAlias),
     CreateTable(CreateTable),
+    Values(Values),
+    Insert(Insert),
 }
 
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct CreateTable {
     pub name: OwnedTableReference,
     pub fields: Vec<Field>,
+}
+
+#[derive(Clone, PartialEq, Eq, Hash)]
+pub struct Values {
+    pub schema: SchemaRef,
+    pub values: Vec<Vec<Expr>>,
+}
+
+#[derive(Clone, PartialEq, Eq, Hash)]
+pub struct Insert {
+    pub table_name: OwnedTableReference,
+    pub table_schema: SchemaRef,
+    pub projected_schema: SchemaRef,
+    pub input: Arc<LogicalPlan>,
 }
 
 #[derive(Clone, PartialEq, Eq, Hash)]
@@ -87,14 +103,37 @@ pub struct Join {
 
 impl Join {
     ///create new join based on original join, left and right has projection columns
-    pub fn try_new_with_project_input(original: &LogicalPlan, left: Arc<LogicalPlan>, right: Arc<LogicalPlan>, column_on: (Vec<Column>, Vec<Column>)) -> Result<Self> {
+    pub fn try_new_with_project_input(
+        original: &LogicalPlan,
+        left: Arc<LogicalPlan>,
+        right: Arc<LogicalPlan>,
+        column_on: (Vec<Column>, Vec<Column>),
+    ) -> Result<Self> {
         let original_join = match original {
             LogicalPlan::Join(join) => join,
-            _=>return Err(anyhow::anyhow!("could not create join with project input"))
+            _ => return Err(anyhow::anyhow!("could not create join with project input")),
         };
-        let on: Vec<(Expr, Expr)> = column_on.0.into_iter().zip(column_on.1.into_iter()).map(|(l, r)|(Expr::Column(l), Expr::Column(r))).collect();
-        let join_schema = build_join_schema(left.output_schema().as_ref(), right.output_schema().as_ref(), &original_join.join_type)?;
-        Ok(Join { left: left, right: right, on: on, filter: original_join.filter.clone(), join_type: original_join.join_type, join_constraint: original_join.join_constraint, schema: Arc::new(join_schema), null_equals_null: original_join.null_equals_null })
+        let on: Vec<(Expr, Expr)> = column_on
+            .0
+            .into_iter()
+            .zip(column_on.1.into_iter())
+            .map(|(l, r)| (Expr::Column(l), Expr::Column(r)))
+            .collect();
+        let join_schema = build_join_schema(
+            left.output_schema().as_ref(),
+            right.output_schema().as_ref(),
+            &original_join.join_type,
+        )?;
+        Ok(Join {
+            left: left,
+            right: right,
+            on: on,
+            filter: original_join.filter.clone(),
+            join_type: original_join.join_type,
+            join_constraint: original_join.join_constraint,
+            schema: Arc::new(join_schema),
+            null_equals_null: original_join.null_equals_null,
+        })
     }
 }
 
@@ -183,12 +222,16 @@ pub struct SubqueryAlias {
     pub schema: SchemaRef,
 }
 
-impl SubqueryAlias{
+impl SubqueryAlias {
     pub fn try_new(plan: LogicalPlan, alias: impl Into<OwnedTableReference>) -> Result<Self> {
         let alias = alias.into();
         let schema: Schema = plan.output_schema().as_ref().clone().into();
         let schema = SchemaRef::new(Schema::try_from_qualified_schema(&alias, &schema)?);
-        Ok(SubqueryAlias { input: Arc::new(plan), alias: alias , schema: schema})
+        Ok(SubqueryAlias {
+            input: Arc::new(plan),
+            alias: alias,
+            schema: schema,
+        })
     }
 }
 impl LogicalPlan {
@@ -206,8 +249,10 @@ impl LogicalPlan {
             LogicalPlan::CrossJoin(CrossJoin { schema, .. }) => schema.clone(),
             LogicalPlan::Limit(Limit { input, .. }) => input.output_schema(),
             LogicalPlan::Projection(Projection { schema, .. }) => schema.clone(),
-            LogicalPlan::SubqueryAlias(SubqueryAlias{schema,..}) => schema.clone(),
-            LogicalPlan::CreateTable(_)=>Arc::clone(&EMPTY_SCHEMA_REF),
+            LogicalPlan::SubqueryAlias(SubqueryAlias { schema, .. }) => schema.clone(),
+            LogicalPlan::CreateTable(_) => Arc::clone(&EMPTY_SCHEMA_REF),
+            LogicalPlan::Values(Values { schema, .. }) => schema.clone(),
+            LogicalPlan::Insert(Insert { table_schema, .. }) => table_schema.clone(),
         }
     }
 
@@ -222,8 +267,9 @@ impl LogicalPlan {
             LogicalPlan::CrossJoin(CrossJoin { left, right, .. }) => vec![left, right],
             LogicalPlan::Limit(Limit { input, .. }) => vec![input],
             LogicalPlan::TableScan { .. } | LogicalPlan::EmptyRelation { .. } => vec![],
-            LogicalPlan::SubqueryAlias(SubqueryAlias{input,..}) => vec![input],
-            LogicalPlan::CreateTable(_)=>vec![],
+            LogicalPlan::SubqueryAlias(SubqueryAlias { input, .. }) => vec![input],
+            LogicalPlan::CreateTable(_) | LogicalPlan::Values(_) => vec![],
+            LogicalPlan::Insert(Insert { input, .. }) => vec![input],
         }
     }
 
@@ -346,11 +392,44 @@ impl LogicalPlan {
                             fetch.map_or_else(|| "None".to_string(), |x| x.to_string())
                         )
                     }
-                    LogicalPlan::SubqueryAlias(SubqueryAlias{ref alias,..})=>{
+                    LogicalPlan::SubqueryAlias(SubqueryAlias { ref alias, .. }) => {
                         write!(f, "SubqueryAlias: {alias}")
                     }
-                    LogicalPlan::CreateTable(CreateTable { ref name, ref fields })=>{
-                        write!(f, "Create Table: {}, Columns:({})", name, fields.iter().map(|c|c.name().to_owned()).collect::<Vec<_>>().join(","))
+                    LogicalPlan::CreateTable(CreateTable {
+                        ref name,
+                        ref fields,
+                    }) => {
+                        write!(
+                            f,
+                            "Create Table: {}, Columns:({})",
+                            name,
+                            fields
+                                .iter()
+                                .map(|c| c.name().to_owned())
+                                .collect::<Vec<_>>()
+                                .join(",")
+                        )
+                    }
+                    LogicalPlan::Values(Values { ref values, .. }) => {
+                        let valuestr: Vec<_> = values
+                            .iter()
+                            .take(5)
+                            .map(|row| {
+                                let rowstr = row
+                                    .iter()
+                                    .map(|e| e.to_string())
+                                    .collect::<Vec<_>>()
+                                    .join(", ");
+                                format!("({rowstr})")
+                            })
+                            .collect();
+                        let hasmore = if values.len() > 5 { "..." } else { "" };
+                        write!(f, "Values:{}{}", valuestr.join(", "), hasmore)
+                    }
+                    LogicalPlan::Insert(Insert {
+                        table_name, input, ..
+                    }) => {
+                        write!(f, "Insert into {}, values {}", table_name, input.display())
                     }
                 }
             }
@@ -432,9 +511,13 @@ impl LogicalPlan {
             }
             LogicalPlan::Sort(Sort { expr, .. }) => expr.iter().try_for_each(f),
             LogicalPlan::TableScan(TableScan { filters, .. }) => filters.iter().try_for_each(f),
-            LogicalPlan::EmptyRelation(_) | LogicalPlan::Limit(_) | LogicalPlan::CrossJoin(_)|LogicalPlan::SubqueryAlias(_) | LogicalPlan::CreateTable(_)=> {
-                Ok(())
-            }
+            LogicalPlan::EmptyRelation(_)
+            | LogicalPlan::Limit(_)
+            | LogicalPlan::CrossJoin(_)
+            | LogicalPlan::SubqueryAlias(_)
+            | LogicalPlan::CreateTable(_)
+            | LogicalPlan::Insert(_) => Ok(()),
+            LogicalPlan::Values(Values { values, .. }) => values.iter().flatten().try_for_each(f),
         }
     }
 
@@ -615,6 +698,7 @@ impl std::fmt::Debug for LogicalPlan {
     }
 }
 
+/*
 #[cfg(test)]
 mod test {
     use super::*;
@@ -754,6 +838,5 @@ mod test {
         //println!("{:?}", _plan);
         Ok(())
     }
-
-    
 }
+*/

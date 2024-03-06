@@ -1,9 +1,9 @@
 use super::{table_reference::OwnedTableReference, utils::parse_identifiers_normalized};
 use crate::common::schema::Schema;
+use anyhow::{anyhow, Result};
 use std::collections::HashSet;
-use anyhow::{Result,anyhow};
 
-#[derive(Debug, Clone,Hash, Eq, Ord,PartialOrd, PartialEq)]
+#[derive(Debug, Clone, Hash, Eq, Ord, PartialOrd, PartialEq)]
 pub struct Column {
     pub relation: Option<OwnedTableReference>,
     pub name: String,
@@ -18,7 +18,7 @@ impl Column {
     }
     pub fn from_name(name: impl Into<String>) -> Self {
         Self {
-            relation: None, 
+            relation: None,
             name: name.into(),
         }
     }
@@ -27,43 +27,59 @@ impl Column {
         let mut idents = parse_identifiers_normalized(&flat_name);
         let (relation, name) = match idents.len() {
             1 => (None, idents.remove(0)),
-            2 => (Some(OwnedTableReference::Bare { table: idents.remove(0).into() }), idents.remove(0)),
-            3 => (Some(OwnedTableReference::Full {database: idents.remove(0).into(), table: idents.remove(0).into()}), idents.remove(0)),
-            _=> (None, flat_name),
+            2 => (
+                Some(OwnedTableReference::Bare {
+                    table: idents.remove(0).into(),
+                }),
+                idents.remove(0),
+            ),
+            3 => (
+                Some(OwnedTableReference::Full {
+                    database: idents.remove(0).into(),
+                    table: idents.remove(0).into(),
+                }),
+                idents.remove(0),
+            ),
+            _ => (None, flat_name),
         };
-        Self {relation, name}
+        Self { relation, name }
     }
     pub fn flat_name(&self) -> String {
         match &self.relation {
-            Some(r) => format!("{}.{}",r, self.name),
-            None=>self.name.clone(),
+            Some(r) => format!("{}.{}", r, self.name),
+            None => self.name.clone(),
         }
     }
     pub fn normalize_with_schemas_and_ambiguity_check(
         self,
         schemas: &[&[&Schema]],
-        using_columns: &[HashSet<Column>]
-    )->Result<Self> {
+        using_columns: &[HashSet<Column>],
+    ) -> Result<Self> {
         if self.relation.is_some() {
-            return Ok(self)
+            return Ok(self);
         }
         for schema_level in schemas {
-            let fields = schema_level.iter().flat_map(|s|s.fields_with_unqualified_name(&self.name)).collect::<Vec<_>>();
+            let fields = schema_level
+                .iter()
+                .flat_map(|s| s.fields_with_unqualified_name(&self.name))
+                .collect::<Vec<_>>();
             match fields.len() {
                 0 => continue,
                 1 => return Ok(fields[0].qualified_column()),
-                _=>{
+                _ => {
                     for using_col in using_columns {
-                        let all_matched = fields.iter().all(|f|using_col.contains(&f.qualified_column()));
+                        let all_matched = fields
+                            .iter()
+                            .all(|f| using_col.contains(&f.qualified_column()));
                         if all_matched {
-                            return Ok(fields[0].qualified_column())
+                            return Ok(fields[0].qualified_column());
                         }
                     }
-                    return Err(anyhow!("ambigious columns found for {self}"))
+                    return Err(anyhow!("ambigious columns found for {self}"));
                 }
             }
         }
-        return Err(anyhow!("failed to find field {self}"))
+        return Err(anyhow!("failed to find field {self}"));
     }
 }
 

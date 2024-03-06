@@ -5,9 +5,9 @@ use crate::common::types::DataValue;
 use crate::physical_expr::accumulator::Accumulator;
 use crate::physical_expr::aggregate::AggregateExpr;
 use crate::physical_expr::PhysicalExpr;
+use crate::physical_planner::utils::transpose_matrix;
 use crate::physical_planner::ExecutionState;
 use crate::session::SessionState;
-use crate::physical_planner::utils::transpose_matrix;
 use anyhow::Result;
 use core::cmp::min;
 use futures::ready;
@@ -183,8 +183,6 @@ impl AggregateStream {
         })
     }
 }
-
-
 
 pub struct GroupState {
     pub group_by_values: Vec<DataValue>,
@@ -518,7 +516,9 @@ impl AggregateExec {
 
     fn execute_typed(&self, state: &SessionState) -> Result<StreamType> {
         if self.group_by.expr.is_empty() {
-            Ok(StreamType::AggregateStream(AggregateStream::new(self, state)?))
+            Ok(StreamType::AggregateStream(AggregateStream::new(
+                self, state,
+            )?))
         } else {
             Ok(StreamType::GroupedHashAggregateStream(
                 GroupedHashAggregateStream::new(self, state)?,

@@ -1,8 +1,8 @@
 use crate::common::record_batch::RecordBatch;
 use crate::common::schema::{Schema, SchemaRef};
+use crate::physical_planner::utils::collect_batch_stream;
 use crate::physical_planner::utils::OnceAsync;
 use crate::physical_planner::utils::OnceFut;
-use crate::physical_planner::utils::collect_batch_stream;
 use crate::session::SessionState;
 use anyhow::Result;
 use async_trait::async_trait;
@@ -10,7 +10,6 @@ use futures::StreamExt;
 use futures::{ready, Stream};
 use std::sync::Arc;
 use std::task::Poll;
-
 
 use super::{ExecutionPlan, RecordBatchStream, SendableRecordBatchStream};
 
@@ -39,8 +38,6 @@ impl CrossJoinExec {
         &self.right
     }
 }
-
-
 
 struct CrossJoinStream {
     schema: Arc<Schema>,
@@ -153,7 +150,9 @@ impl ExecutionPlan for CrossJoinExec {
     fn execute(&self, state: &SessionState) -> Result<SendableRecordBatchStream> {
         let stream = self.right.execute(state)?;
         let state_cloned = state.clone();
-        let left_fut = self.left_fut.once(|| collect_batch_stream(self.left.clone(), state_cloned));
+        let left_fut = self
+            .left_fut
+            .once(|| collect_batch_stream(self.left.clone(), state_cloned));
         Ok(Box::pin(CrossJoinStream {
             schema: self.schema.clone(),
             left_fut,

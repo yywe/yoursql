@@ -13,7 +13,7 @@ impl<'a> std::fmt::Display for ResolvedTableReference<'a> {
     }
 }
 
-#[derive(Serialize, Deserialize, Eq, PartialEq, Ord,PartialOrd, Hash, Debug, Clone)]
+#[derive(Serialize, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Clone)]
 pub enum TableReference<'a> {
     Bare {
         table: Cow<'a, str>,
@@ -66,8 +66,8 @@ impl<'a> TableReference<'a> {
 
     pub fn database_name(&self) -> Option<&str> {
         match self {
-            Self::Full { database, ..} => Some(database),
-            _=>None
+            Self::Full { database, .. } => Some(database),
+            _ => None,
         }
     }
 
@@ -135,7 +135,7 @@ impl std::fmt::Display for TableReference<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             TableReference::Bare { table } => write!(f, "{table}"),
-            TableReference::Full { database, table } => write!(f, "{database}.{table}")
+            TableReference::Full { database, table } => write!(f, "{database}.{table}"),
         }
     }
 }

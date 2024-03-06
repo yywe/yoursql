@@ -2,12 +2,12 @@ use anyhow::Result;
 use std::collections::HashMap;
 use std::sync::Arc;
 use yoursql::common::record_batch::RecordBatch;
-use yoursql::common::table_reference::TableReference;
-use yoursql::common::table_reference::OwnedTableReference;
-use yoursql::common::types::DataType;
-use yoursql::common::types::DataValue;
 use yoursql::common::schema::Field;
 use yoursql::common::schema::Schema;
+use yoursql::common::table_reference::OwnedTableReference;
+use yoursql::common::table_reference::TableReference;
+use yoursql::common::types::DataType;
+use yoursql::common::types::DataValue;
 use yoursql::physical_planner::print_batch_stream;
 use yoursql::physical_planner::RecordBatchStream;
 use yoursql::session::SessionContext;
@@ -26,10 +26,9 @@ async fn main() -> Result<()> {
     };
     let memtable_def = Schema::new(
         vec![
-            Field::new("a", DataType::Int64, false,  Some(qualifier.clone())),
-            Field::new("b", DataType::Boolean, false,  Some(qualifier.clone())),
-            Field::new("c", DataType::Utf8, false,  Some(qualifier.clone())),
-           
+            Field::new("a", DataType::Int64, false, Some(qualifier.clone())),
+            Field::new("b", DataType::Boolean, false, Some(qualifier.clone())),
+            Field::new("c", DataType::Utf8, false, Some(qualifier.clone())),
         ],
         HashMap::new(),
     );

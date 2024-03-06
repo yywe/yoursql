@@ -11,7 +11,7 @@ use std::hash::Hash;
 use std::ops::Deref;
 use std::sync::Arc;
 
-lazy_static::lazy_static!{
+lazy_static::lazy_static! {
     pub static ref EMPTY_SCHEMA_REF: SchemaRef = Arc::new(Schema::empty());
 }
 
@@ -321,8 +321,8 @@ impl Schema {
             .collect()
     }
 
-    pub fn all_fields(&self)->Vec<&Field> {
-        self.fields.iter().map(|f|&(**f)).collect()
+    pub fn all_fields(&self) -> Vec<&Field> {
+        self.fields.iter().map(|f| &(**f)).collect()
     }
 
     pub fn field_with_unqualified_name(&self, name: &str) -> Result<&Field> {

@@ -1,15 +1,15 @@
+use super::memory::MemoryStream;
+use crate::common::record_batch::RecordBatch;
 use crate::common::schema::Field;
+use crate::common::schema::Schema;
 use crate::common::schema::SchemaRef;
 use crate::common::types::{DataType, DataValue};
-use anyhow::Result;
 use crate::physical_planner::ExecutionPlan;
-use std::any::Any;
-use crate::common::record_batch::RecordBatch;
 use crate::physical_planner::SendableRecordBatchStream;
-use crate::common::schema::Schema;
-use super::memory::MemoryStream;
-use std::collections::HashMap;
 use crate::session::SessionState;
+use anyhow::Result;
+use std::any::Any;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 #[derive(Debug)]
@@ -32,7 +32,7 @@ impl EmptyExec {
         let batch = if self.produce_one_row {
             let n_fields = self.table.fields.len();
             let fields: Vec<Field> = (0..n_fields)
-                .map(|i| Field::new(format!("placeholder_{i}"), DataType::Null, true,None))
+                .map(|i| Field::new(format!("placeholder_{i}"), DataType::Null, true, None))
                 .collect();
             let dummy_values: Vec<DataValue> = (0..n_fields).map(|_i| DataValue::Null).collect();
             vec![RecordBatch {
@@ -47,20 +47,29 @@ impl EmptyExec {
 }
 
 impl ExecutionPlan for EmptyExec {
-    fn as_any(&self) -> &dyn Any{
+    fn as_any(&self) -> &dyn Any {
         self
     }
-    fn schema(&self) -> SchemaRef{
+    fn schema(&self) -> SchemaRef {
         self.table.clone()
     }
-    fn execute(&self, _session_state: &SessionState) -> Result<SendableRecordBatchStream>{
-        Ok(Box::pin(MemoryStream::try_new(self.data()?, self.schema(), None)?))
+    fn execute(&self, _session_state: &SessionState) -> Result<SendableRecordBatchStream> {
+        Ok(Box::pin(MemoryStream::try_new(
+            self.data()?,
+            self.schema(),
+            None,
+        )?))
     }
     fn children(&self) -> Vec<Arc<dyn ExecutionPlan>> {
         vec![]
     }
-    fn with_new_chilren(self: Arc<Self>, _children: Vec<Arc<dyn ExecutionPlan>>) -> Result<Arc<dyn ExecutionPlan>> {
-        Ok(Arc::new(EmptyExec::new(self.produce_one_row, self.table.clone())))
+    fn with_new_chilren(
+        self: Arc<Self>,
+        _children: Vec<Arc<dyn ExecutionPlan>>,
+    ) -> Result<Arc<dyn ExecutionPlan>> {
+        Ok(Arc::new(EmptyExec::new(
+            self.produce_one_row,
+            self.table.clone(),
+        )))
     }
 }
-

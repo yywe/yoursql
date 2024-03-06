@@ -102,7 +102,10 @@ impl<T: 'static> OnceAsync<T> {
     }
 }
 
-pub async fn collect_batch_stream(plan: Arc<dyn ExecutionPlan>, state: SessionState) -> Result<RecordBatch> {
+pub async fn collect_batch_stream(
+    plan: Arc<dyn ExecutionPlan>,
+    state: SessionState,
+) -> Result<RecordBatch> {
     let stream = plan.execute(&state)?;
     let batches: Vec<Result<RecordBatch>> = stream.collect().await;
     let mut merged_rows = Vec::new();

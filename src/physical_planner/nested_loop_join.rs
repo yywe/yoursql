@@ -4,9 +4,9 @@ use crate::common::schema::Schema;
 use crate::common::types::DataValue;
 use crate::expr::logical_plan::JoinType;
 use crate::physical_expr::PhysicalExpr;
-use crate::session::SessionState;
 use crate::physical_planner::utils::collect_batch_stream;
 use crate::physical_planner::utils::{OnceAsync, OnceFut};
+use crate::session::SessionState;
 use crate::{expr::logical_plan::builder::build_join_schema, physical_planner::SchemaRef};
 use anyhow::Result;
 use futures::{ready, Stream, StreamExt};
@@ -90,7 +90,7 @@ impl ExecutionPlan for NestedLoopJoinExec {
             } else {
                 let inner_table = self
                     .inner_table
-                    .once(|| collect_batch_stream(self.right.clone(),state_cloned));
+                    .once(|| collect_batch_stream(self.right.clone(), state_cloned));
                 let outer_table = self.left.execute(state)?;
                 (outer_table, inner_table)
             };
@@ -261,7 +261,7 @@ fn join_left_and_right_batch(
         match join_type {
             // for right join and full join, the left side has all the data, right side is looped as a stream
             // here, for rows in right side stream, there is not matched left, add left as NULLs
-            
+
             // for full join, still, left is build side has all data, ROWs with unmatched right side (left NULLs) are added here
             // meanwhile, visited_left_side will accumulate the visited (matched) left rows.
             //when right side stream is done, then then finally look at remaining unvisited left index
@@ -288,7 +288,7 @@ fn join_left_and_right_batch(
                     }
                 }
             }
-            _=>{},
+            _ => {}
         }
         Ok(RecordBatch {
             schema: Arc::new(schema.clone()),

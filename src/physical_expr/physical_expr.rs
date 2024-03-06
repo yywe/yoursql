@@ -552,7 +552,7 @@ impl PartialEq<dyn Any> for LikeExpr {
 fn simple_like(value: &String, pattern: &String, case_sensitive: bool) -> Result<DataValue> {
     let (value, pattern) = if case_sensitive == false {
         (value.to_lowercase(), pattern.to_lowercase())
-    }else{
+    } else {
         (value.clone(), pattern.clone())
     };
     let regexp = Regex::new(&format!(

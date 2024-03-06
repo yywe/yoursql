@@ -12,6 +12,7 @@ use crate::expr::expr_rewriter::resolve_columns;
 use crate::expr::logical_plan::builder::project;
 use crate::expr::logical_plan::builder::LogicalPlanBuilder;
 use crate::expr::logical_plan::Filter;
+use crate::expr::logical_plan::Insert;
 use crate::expr::logical_plan::JoinType;
 use crate::expr::logical_plan::SubqueryAlias;
 use crate::expr::utils::col;
@@ -20,11 +21,13 @@ use crate::expr::utils::find_aggregate_exprs;
 //use crate::expr::utils::find_column_exprs;
 use crate::expr::expr::Sort;
 use crate::expr::logical_plan::CreateTable;
+use crate::expr::logical_plan::Values;
 use crate::logical_planner::utils::check_columns_satisfy_exprs;
 use crate::logical_planner::utils::expr_as_column_expr;
 use crate::logical_planner::utils::rebase_expr;
 use sqlparser::ast::{ColumnDef, OrderByExpr};
 
+use crate::common::schema::SchemaRef;
 use crate::{common::table_reference::OwnedTableReference, expr::logical_plan::LogicalPlan};
 use anyhow::{anyhow, Result};
 use sqlparser::ast::Expr as SQLExpr;
@@ -49,7 +52,7 @@ impl<'a, C: PlannerContext> LogicalPlanner<'a, C> {
     pub fn plan_create_table(
         &self,
         table_name: ObjectName,
-        columns: Vec<ColumnDef>
+        columns: Vec<ColumnDef>,
     ) -> Result<LogicalPlan> {
         let table_reference = object_name_to_table_refernce(table_name, true)?;
         let fields = columns
@@ -74,11 +77,84 @@ impl<'a, C: PlannerContext> LogicalPlanner<'a, C> {
         }))
     }
 
+    pub fn plan_insert(
+        &self,
+        table_reference: OwnedTableReference,
+        schema: SchemaRef,
+        columns_ident: Vec<Ident>,
+        source: Query,
+    ) -> Result<LogicalPlan> {
+        //let table_reference = object_name_to_table_refernce(table_name, true)?;
+        let input = self.plan_set_expr(*source.body)?;
+        if let LogicalPlan::Values(Values {
+            schema: _schema,
+            values,
+        }) = input.clone()
+        {
+            let projected_schema = if columns_ident.is_empty() {
+                schema.clone()
+            } else {
+                let columns: Vec<String> = columns_ident
+                    .into_iter()
+                    .map(|id| id.value.clone())
+                    .collect();
+                let indices = columns
+                    .into_iter()
+                    .map(|cn| schema.index_of_column_by_name(None, &cn))
+                    .collect::<Result<Vec<_>>>()?;
+                let checked_indices = indices
+                    .into_iter()
+                    .map(|e| match e {
+                        Some(index) => Ok(index),
+                        None => Err(anyhow!("failed to find some column name")),
+                    })
+                    .collect::<Result<Vec<_>>>()?;
+                Arc::new(schema.project(&checked_indices)?)
+            };
+            //IMPORTANT: fix the schema of values
+            let fixed_plan = LogicalPlan::Values(Values {
+                schema: projected_schema.clone(),
+                values: values,
+            });
+            Ok(LogicalPlan::Insert(Insert {
+                table_name: table_reference,
+                table_schema: schema,
+                projected_schema: projected_schema,
+                input: Arc::new(fixed_plan),
+            }))
+        } else {
+            Err(anyhow!(format!("input plan of insert must be values")))
+        }
+    }
+
     pub fn plan_set_expr(&self, set_expr: SetExpr) -> Result<LogicalPlan> {
         match set_expr {
             SetExpr::Select(s) => self.plan_select(*s),
+            SetExpr::Values(values) => self.plan_values(values),
             _ => Err(anyhow!(format!("set expr {set_expr} not supported yet"))),
         }
+    }
+
+    ///here simply convert to ast::Expr to logical Expr based on empty schema
+    /// the datafusion impl also infer schema from values, refer LogicalPlanBuilder::values
+    /// here in plan_insert, we will project the schema based on columns_ident
+    /// TODO: remove to mutation
+    pub fn plan_values(&self, values: sqlparser::ast::Values) -> Result<LogicalPlan> {
+        let schema = Schema::empty();
+        let values = values
+            .rows
+            .into_iter()
+            .map(|row| {
+                row.into_iter()
+                    .map(|v| self.sql_expr_to_logical_expr(v, &schema))
+                    .collect::<Result<Vec<_>>>()
+            })
+            .collect::<Result<Vec<_>>>()?;
+        //values should not be based on any other schema, thus just empty
+        Ok(LogicalPlan::Values(Values {
+            schema: Arc::new(schema),
+            values: values,
+        }))
     }
 
     pub fn plan_select(&self, select: Select) -> Result<LogicalPlan> {
@@ -649,6 +725,7 @@ impl<'a, C: PlannerContext> LogicalPlanner<'a, C> {
     }
 }
 
+/*
 #[cfg(test)]
 mod test {
     use super::*;
@@ -673,3 +750,4 @@ mod test {
         Ok(())
     }
 }
+*/

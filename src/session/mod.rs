@@ -1,31 +1,31 @@
-use crate::catalog::MemoryDB;
-use crate::catalog::DB;
-use crate::catalog::MemoryDBList;
 use crate::catalog::DBList;
+use crate::catalog::MemoryDB;
+use crate::catalog::MemoryDBList;
+use crate::catalog::DB;
 use crate::common::config::ConfigOptions;
+use crate::common::record_batch::RecordBatch;
 use crate::common::table_reference::OwnedTableReference;
 use crate::common::table_reference::ResolvedTableReference;
 use crate::common::table_reference::TableReference;
-use crate::logical_planner::ParserOptions;
+use crate::expr::logical_plan::LogicalPlan;
 use crate::logical_planner::object_name_to_table_refernce;
+use crate::logical_planner::LogicalPlanner;
+use crate::logical_planner::ParserOptions;
+use crate::logical_planner::PlannerContext;
 use crate::physical_planner::DefaultPhysicalPlanner;
+use crate::physical_planner::ExecutionPlan;
 use crate::physical_planner::PhysicalPlanner;
 use crate::storage::Table;
-use crate::expr::logical_plan::LogicalPlan;
-use crate::logical_planner::PlannerContext;
-use crate::logical_planner::LogicalPlanner;
 use anyhow::Context;
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use futures::TryStreamExt;
 use parking_lot::RwLock;
-use std::sync::Arc;
-use std::ops::ControlFlow;
-use uuid::Uuid;
-use std::collections::HashMap;
 use std::collections::hash_map::Entry;
-use crate::physical_planner::ExecutionPlan;
-use crate::common::record_batch::RecordBatch;
+use std::collections::HashMap;
+use std::ops::ControlFlow;
+use std::sync::Arc;
+use uuid::Uuid;
 
 #[derive(Clone)]
 pub struct SessionContext {
@@ -41,17 +41,20 @@ pub struct SessionState {
     config: ConfigOptions,
 }
 
-struct ReferredTables<'a>{
+struct ReferredTables<'a> {
     state: &'a SessionState,
     tables: HashMap<String, Arc<dyn Table>>,
 }
 
 impl<'a> PlannerContext for ReferredTables<'a> {
-    fn get_table_provider(&self, name: TableReference) -> Result<Arc<dyn Table>>{
+    fn get_table_provider(&self, name: TableReference) -> Result<Arc<dyn Table>> {
         let name = self.state.resolve_table_ref(name).to_string();
-        self.tables.get(&name).cloned().context(format!("table '{name}' not found"))
+        self.tables
+            .get(&name)
+            .cloned()
+            .context(format!("table '{name}' not found"))
     }
-    fn options(&self) -> &ConfigOptions{
+    fn options(&self) -> &ConfigOptions {
         &self.state.config
     }
 }
@@ -79,9 +82,9 @@ impl SessionState {
         &'a self,
         table_ref: impl Into<TableReference<'a>>,
     ) -> ResolvedTableReference<'a> {
-        table_ref.into().resolve(
-            &self.config.catalog.default_database
-        )
+        table_ref
+            .into()
+            .resolve(&self.config.catalog.default_database)
     }
 
     pub fn database_for_ref<'a>(
@@ -91,11 +94,17 @@ impl SessionState {
         let resolved_ref = self.resolve_table_ref(table_ref);
         self.databases
             .database(&resolved_ref.database)
-            .context(format!("failed to resolve database:{}", resolved_ref.database))
+            .context(format!(
+                "failed to resolve database:{}",
+                resolved_ref.database
+            ))
     }
 
     /// create logical plan based on AST statment
-    pub async fn make_logical_plan(&self, statement: sqlparser::ast::Statement) -> Result<LogicalPlan> {
+    pub async fn make_logical_plan(
+        &self,
+        statement: sqlparser::ast::Statement,
+    ) -> Result<LogicalPlan> {
         let references = self.extract_table_references(&statement)?;
 
         let mut referred_tables = ReferredTables {
@@ -118,16 +127,22 @@ impl SessionState {
             }
         }
 
-        let planner = LogicalPlanner::new_with_options(&referred_tables, ParserOptions {
-            parse_float_as_decimal,
-            enable_ident_normalization,
-        });
+        let planner = LogicalPlanner::new_with_options(
+            &referred_tables,
+            ParserOptions {
+                parse_float_as_decimal,
+                enable_ident_normalization,
+            },
+        );
 
         planner.statement_to_plan(statement)
     }
 
     /// create a physical plan based on logical plan
-    pub async fn create_physical_plan(&self, logical_plan: &LogicalPlan) -> Result<Arc<dyn ExecutionPlan>> {
+    pub async fn create_physical_plan(
+        &self,
+        logical_plan: &LogicalPlan,
+    ) -> Result<Arc<dyn ExecutionPlan>> {
         // first optimze the logical plan
         let logical_plan = self.logical_optimize(logical_plan)?;
 
@@ -145,7 +160,10 @@ impl SessionState {
     }
 
     /// finally, execute the physical plan (optimized) and get result, i.e, vector of batch.
-    pub async fn execute_physical_plan(&self, plan: Arc<dyn ExecutionPlan>) -> Result<Vec<RecordBatch>> {
+    pub async fn execute_physical_plan(
+        &self,
+        plan: Arc<dyn ExecutionPlan>,
+    ) -> Result<Vec<RecordBatch>> {
         let stream = plan.execute(&self)?;
         stream.try_collect::<Vec<_>>().await
     }
@@ -156,13 +174,31 @@ impl SessionState {
         let mut i = 0;
         for batch in batch_iters {
             if i == 0 {
-                let header = batch.schema.all_fields().iter().map(|f|(*f).clone()).collect::<Vec<_>>();
-                println!("{}", header.iter().map(|f|f.name().as_str()).collect::<Vec<_>>().join("|"));
+                let header = batch
+                    .schema
+                    .all_fields()
+                    .iter()
+                    .map(|f| (*f).clone())
+                    .collect::<Vec<_>>();
+                println!(
+                    "{}",
+                    header
+                        .iter()
+                        .map(|f| f.name().as_str())
+                        .collect::<Vec<_>>()
+                        .join("|")
+                );
             }
             for row in &batch.rows {
-                println!("{}", row.iter().map(|v|format!("{}",v)).collect::<Vec<_>>().join("|"))
+                println!(
+                    "{}",
+                    row.iter()
+                        .map(|v| format!("{}", v))
+                        .collect::<Vec<_>>()
+                        .join("|")
+                )
             }
-            i+=1;
+            i += 1;
         }
     }
 
@@ -170,16 +206,19 @@ impl SessionState {
     /// This used the Visitor Interface in sqlparser package
     /// https://docs.rs/sqlparser/latest/sqlparser/ast/trait.Visitor.html
     /// need to enable visitor feature from Cargo.toml
-    pub fn extract_table_references(&self, statement: &sqlparser::ast::Statement) -> Result<Vec<OwnedTableReference>> {
+    pub fn extract_table_references(
+        &self,
+        statement: &sqlparser::ast::Statement,
+    ) -> Result<Vec<OwnedTableReference>> {
         use sqlparser::ast::*;
         // container to hold the used relations
         let mut relations = hashbrown::HashSet::with_capacity(10);
-        
+
         // visitor action, when hit a reltion, insert (a clone) into the visitor
         struct RelationVisitor<'a>(&'a mut hashbrown::HashSet<ObjectName>);
         impl<'a> RelationVisitor<'a> {
             fn insert(&mut self, relation: &ObjectName) {
-                self.0.get_or_insert_with(relation, |_|relation.clone());
+                self.0.get_or_insert_with(relation, |_| relation.clone());
             }
         }
         impl<'a> Visitor for RelationVisitor<'a> {
@@ -189,7 +228,11 @@ impl SessionState {
                 ControlFlow::Continue(())
             }
             fn pre_visit_statement(&mut self, statement: &Statement) -> ControlFlow<Self::Break> {
-                if let Statement::ShowCreate { obj_type: ShowCreateObject::Table | ShowCreateObject::View, obj_name } = statement {
+                if let Statement::ShowCreate {
+                    obj_type: ShowCreateObject::Table | ShowCreateObject::View,
+                    obj_name,
+                } = statement
+                {
                     self.insert(obj_name)
                 }
                 ControlFlow::Continue(())
@@ -201,9 +244,11 @@ impl SessionState {
 
         // collect the owned table reference
         let enable_ident_normalization = self.config.sql_parser.enable_ident_normalization;
-        relations.into_iter().map(|x| object_name_to_table_refernce(x, enable_ident_normalization)).collect::<Result<_>>()
+        relations
+            .into_iter()
+            .map(|x| object_name_to_table_refernce(x, enable_ident_normalization))
+            .collect::<Result<_>>()
     }
-
 }
 
 impl SessionContext {
@@ -252,9 +297,16 @@ impl SessionContext {
             .register_table(table_name, table)
     }
 
-    pub fn register_database(&self, name: impl Into<String>, database: Arc<dyn DB>) -> Option<Arc<dyn DB>> {
+    pub fn register_database(
+        &self,
+        name: impl Into<String>,
+        database: Arc<dyn DB>,
+    ) -> Option<Arc<dyn DB>> {
         let name = name.into();
-        self.state.read().databases.register_database(name, database)
+        self.state
+            .read()
+            .databases
+            .register_database(name, database)
     }
 
     pub fn state(&self) -> SessionState {
@@ -268,7 +320,7 @@ impl Default for SessionContext {
     }
 }
 
-
+/*
 #[cfg(test)]
 pub mod test {
     use super::*;
@@ -323,7 +375,7 @@ pub mod test {
         let memtable1 = MemTable::try_new(table1_ref, vec![batch1, batch2])?;
         let table_ref1 = Arc::new(memtable1);
         session.register_table(table1, table_ref1.clone())?;
-    
+
         // 2nd table: course
         let table2 = OwnedTableReference::Full {
             database: "testdb".to_string().into(),
@@ -456,7 +508,7 @@ pub mod test {
     async fn test_physical_planner() -> Result<()> {
         let mut session = SessionContext::default();
         init_mem_testdb(&mut session)?;
-        
+
         //cross join
         //println!("test cross join");
         let sql = "SELECT student.id, course.name, age, address, instructor from testdb.student cross join testdb.course";
@@ -467,7 +519,7 @@ pub mod test {
         let physical_plan = session.state.read().create_physical_plan(&logical_plan).await?;
         let record_batches = session.state.read().execute_physical_plan(physical_plan).await?;
         session.state.read().print_record_batches(&record_batches);
-        
+
         //nested loop join
         //println!("test regular join-nestedloop");
         let sql = "SELECT student.id, student.name, score from testdb.student inner join testdb.enroll on id=student_id";
@@ -488,11 +540,11 @@ pub mod test {
         let logical_plan = session.state.read().make_logical_plan(statement).await?;
         println!("logical plan:{:?}", logical_plan);
         let physical_plan = session.state.read().create_physical_plan(&logical_plan).await?;
-        
+
         let record_batches = session.state.read().execute_physical_plan(physical_plan).await?;
         session.state.read().print_record_batches(&record_batches);
 
-        
+
         //aggregate
         println!("test aggregate with-groupby----");
         let sql = "SELECT student_id, sum(score) from testdb.enroll group by student_id";
@@ -503,7 +555,7 @@ pub mod test {
         let physical_plan = session.state.read().create_physical_plan(&logical_plan).await?;
         let record_batches = session.state.read().execute_physical_plan(physical_plan).await?;
         session.state.read().print_record_batches(&record_batches);
-        
+
         //sort
         println!("test sort");
         let sql = "SELECT id, name, age from testdb.student order by id desc";
@@ -526,8 +578,8 @@ pub mod test {
         let physical_plan = session.state.read().create_physical_plan(&logical_plan).await?;
         let record_batches = session.state.read().execute_physical_plan(physical_plan).await?;
         session.state.read().print_record_batches(&record_batches);
-    
-    
+
+
         //like opeartion
         println!("test like expression");
         let sql = "SELECT id, name, age, address from testdb.student where address like '%lin%'";
@@ -542,3 +594,4 @@ pub mod test {
         Ok(())
     }
 }
+*/

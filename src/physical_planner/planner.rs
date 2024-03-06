@@ -2,29 +2,35 @@ use super::aggregate::PhysicalGroupBy;
 use super::limit::LimitExec;
 use super::nested_loop_join::NestedLoopJoinExec;
 use super::projection::ProjectionExec;
+use super::values::ValuesExec;
 use super::ExecutionPlan;
 use super::PhysicalPlanner;
 use crate::common::schema::Schema;
 use crate::expr::expr;
-use crate::expr::expr::{Between, AggregateFunction, Like};
-use crate::expr::expr::Expr;
 use crate::expr::expr::BinaryExpr;
+use crate::expr::expr::Expr;
+use crate::expr::expr::{AggregateFunction, Between, Like};
 use crate::expr::expr_rewriter::unalias;
 use crate::expr::expr_rewriter::unnormlize_cols;
 use crate::expr::logical_plan::builder::build_join_schema;
 use crate::expr::logical_plan::builder::wrap_projection_for_join;
-use crate::expr::logical_plan::TableScan;
 use crate::expr::logical_plan::LogicalPlan;
-use crate::expr::logical_plan::{Aggregate, CrossJoin, Join, Projection, Sort, Limit, CreateTable};
+use crate::expr::logical_plan::TableScan;
+use crate::expr::logical_plan::Values;
+use crate::expr::logical_plan::{
+    Aggregate, CreateTable, CrossJoin, Insert, Join, Limit, Projection, Sort,
+};
 use crate::physical_expr::aggregate::create_aggregate_expr_impl;
 use crate::physical_expr::aggregate::AggregateExpr;
 use crate::physical_expr::planner::create_physical_expr;
 use crate::physical_expr::sort::PhysicalSortExpr;
+use crate::physical_expr::PhysicalExpr;
 use crate::physical_planner::aggregate::AggregateExec;
+use crate::physical_planner::create_table::CreateTableExec;
 use crate::physical_planner::cross_join::CrossJoinExec;
 use crate::physical_planner::filter::FilterExec;
+use crate::physical_planner::insert::InsertExec;
 use crate::physical_planner::sort::SortExec;
-use crate::physical_planner::create_table::CreateTableExec;
 use crate::{physical_planner::DefaultPhysicalPlanner, session::SessionState};
 use anyhow::Context;
 use anyhow::{anyhow, Result};
@@ -256,22 +262,78 @@ impl DefaultPhysicalPlanner {
                     let new_sort = SortExec::new(sort_expr, physical_input, *fetch);
                     Ok(Arc::new(new_sort))
                 }
-                LogicalPlan::Limit(Limit{skip, fetch, input})=>{
+                LogicalPlan::Limit(Limit { skip, fetch, input }) => {
                     let input = self.create_initial_plan(input, session_state).await?;
                     Ok(Arc::new(LimitExec::new(input, *skip, *fetch)))
                 }
-                LogicalPlan::CreateTable(CreateTable{name, fields})=>{
-                    let resolved_reference = name.clone().resolve(&session_state.config().catalog.default_database);
+                LogicalPlan::CreateTable(CreateTable { name, fields }) => {
+                    let resolved_reference = name
+                        .clone()
+                        .resolve(&session_state.config().catalog.default_database);
                     let dbname = resolved_reference.database;
                     let tblname = resolved_reference.table;
                     match session_state.catalogs().database(&dbname) {
-                        Some(db)=>{
+                        Some(db) => {
                             if db.table_exist(&tblname) {
-                                return Err(anyhow!(format!("table {} already exist", tblname)))
+                                return Err(anyhow!(format!("table {} already exist", tblname)));
                             }
-                            Ok(Arc::new(CreateTableExec::new(dbname.to_string(), tblname.to_string(), fields.clone())))
+                            Ok(Arc::new(CreateTableExec::new(
+                                dbname.to_string(),
+                                tblname.to_string(),
+                                fields.clone(),
+                            )))
                         }
-                        None=>Err(anyhow!(format!("database {} does not exist", dbname)))
+                        None => Err(anyhow!(format!("database {} does not exist", dbname))),
+                    }
+                }
+                LogicalPlan::Values(Values { schema, values }) => {
+                    let exprs = values
+                        .iter()
+                        .map(|row| {
+                            row.iter()
+                                .map(|expr| {
+                                    //TODO: confirm: for values, it does not have child input physical schema
+                                    //let input_logischema = input.output_schema();
+                                    //NOTE: the values schema is empty schema??
+
+                                    self.create_physical_expr(expr, &schema, &schema, session_state)
+                                })
+                                .collect::<Result<Vec<Arc<dyn PhysicalExpr>>>>()
+                        })
+                        .collect::<Result<Vec<_>>>()?;
+
+                    let value_exec = ValuesExec::try_new(schema.clone(), exprs)?;
+                    Ok(Arc::new(value_exec))
+                }
+                LogicalPlan::Insert(Insert {
+                    table_name,
+                    table_schema,
+                    projected_schema,
+                    input,
+                }) => {
+                    let resolved_reference = table_name
+                        .clone()
+                        .resolve(&session_state.config().catalog.default_database);
+                    let dbname = resolved_reference.database;
+                    let tblname = resolved_reference.table;
+                    match session_state.catalogs().database(&dbname) {
+                        Some(db) => {
+                            if !db.table_exist(&tblname) {
+                                return Err(anyhow!(format!("table {} does not exist", tblname)));
+                            }
+                            let input = self.create_initial_plan(input, session_state).await?;
+                            let table = db
+                                .get_table(&tblname)
+                                .await
+                                .context("failed to get table")?;
+                            Ok(Arc::new(InsertExec::new(
+                                input,
+                                table_schema.clone(),
+                                projected_schema.clone(),
+                                table,
+                            )))
+                        }
+                        None => Err(anyhow!(format!("database {} does not exist", dbname))),
                     }
                 }
                 other => Err(anyhow!(format!(
@@ -307,20 +369,20 @@ fn create_physical_name(e: &Expr, is_first_expr: bool) -> Result<String> {
             args,
             ..
         }) => create_function_physical_name(&fun.to_string(), *distinct, args),
-        Expr::BinaryExpr(BinaryExpr{left, op, right})=>{
+        Expr::BinaryExpr(BinaryExpr { left, op, right }) => {
             let left = create_physical_name(left, false)?;
             let right = create_physical_name(right, false)?;
             Ok(format!("{left} {op} {right}"))
-        },
+        }
         Expr::Not(expr) => {
             let expr = create_physical_name(expr, false)?;
             Ok(format!("NOT {expr}"))
         }
-        Expr::IsNull(expr)=>{
+        Expr::IsNull(expr) => {
             let expr = create_physical_name(expr, false)?;
             Ok(format!("{expr} IS NULL"))
         }
-        Expr::IsNotNull(expr)=>{
+        Expr::IsNotNull(expr) => {
             let expr = create_physical_name(expr, false)?;
             Ok(format!("{expr} IS NOT NULL"))
         }
@@ -328,59 +390,78 @@ fn create_physical_name(e: &Expr, is_first_expr: bool) -> Result<String> {
             let expr = create_physical_name(expr, false)?;
             Ok(format!("{expr} IS TRUE"))
         }
-        Expr::IsNotTrue(expr)=>{
+        Expr::IsNotTrue(expr) => {
             let expr = create_physical_name(expr, false)?;
             Ok(format!("{expr} IS NOT TRUE"))
         }
-        Expr::IsFalse(expr)=>{
+        Expr::IsFalse(expr) => {
             let expr = create_physical_name(expr, false)?;
             Ok(format!("{expr} IS FALSE"))
         }
-        Expr::IsNotFalse(expr)=>{
+        Expr::IsNotFalse(expr) => {
             let expr = create_physical_name(expr, false)?;
             Ok(format!("{expr} IS NOT FALSE"))
         }
-        Expr::Between(Between { expr, negated, low, high })=>{
+        Expr::Between(Between {
+            expr,
+            negated,
+            low,
+            high,
+        }) => {
             let expr = create_physical_name(expr, false)?;
-            let low=create_physical_name(low, false)?;
+            let low = create_physical_name(low, false)?;
             let high = create_physical_name(high, false)?;
             if *negated {
                 Ok(format!("{expr} NOT BETWEEN {low} and {high}"))
-            }else{
+            } else {
                 Ok(format!("{expr} BETWEEN {low} and {high}"))
             }
         }
-        Expr::Like(Like{negated, expr, pattern, escape_char})=>{
+        Expr::Like(Like {
+            negated,
+            expr,
+            pattern,
+            escape_char,
+        }) => {
             let expr = create_physical_name(expr, false)?;
             let pattern = create_physical_name(pattern, false)?;
             let escape = if let Some(char) = escape_char {
                 format!("CHAR '{char}'")
-            }else{
+            } else {
                 "".to_string()
             };
             if *negated {
                 Ok(format!("{expr} NOT LIKE {pattern}{escape}"))
-            }else{
+            } else {
                 Ok(format!("{expr} LIKE {pattern}{escape}"))
             }
         }
-        Expr::ILike(Like{negated, expr, pattern, escape_char})=>{
+        Expr::ILike(Like {
+            negated,
+            expr,
+            pattern,
+            escape_char,
+        }) => {
             let expr = create_physical_name(expr, false)?;
             let pattern = create_physical_name(pattern, false)?;
             let escape = if let Some(char) = escape_char {
                 format!("CHAR '{char}'")
-            }else{
+            } else {
                 "".to_string()
             };
             if *negated {
                 Ok(format!("{expr} NOT ILIKE {pattern}{escape}"))
-            }else{
+            } else {
                 Ok(format!("{expr} ILIKE {pattern}{escape}"))
             }
         }
-        Expr::Sort{..}=>Err(anyhow!("create physical name does not support sort expression")),
-        Expr::Wildcard=>Err(anyhow!("create physical name does not support wildcard")),
-        Expr::QualifiedWildcard { .. }=>Err(anyhow!("create physical name does not support qualified wildcard")),
+        Expr::Sort { .. } => Err(anyhow!(
+            "create physical name does not support sort expression"
+        )),
+        Expr::Wildcard => Err(anyhow!("create physical name does not support wildcard")),
+        Expr::QualifiedWildcard { .. } => Err(anyhow!(
+            "create physical name does not support qualified wildcard"
+        )),
     }
 }
 
