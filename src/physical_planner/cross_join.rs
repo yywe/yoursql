@@ -1,15 +1,15 @@
-use crate::common::record_batch::RecordBatch;
-use crate::common::schema::{Schema, SchemaRef};
-use crate::physical_planner::utils::collect_batch_stream;
-use crate::physical_planner::utils::OnceAsync;
-use crate::physical_planner::utils::OnceFut;
-use crate::session::SessionState;
+use crate::{
+    common::{
+        record_batch::RecordBatch,
+        schema::{Schema, SchemaRef},
+    },
+    physical_planner::utils::{collect_batch_stream, OnceAsync, OnceFut},
+    session::SessionState,
+};
 use anyhow::Result;
 use async_trait::async_trait;
-use futures::StreamExt;
-use futures::{ready, Stream};
-use std::sync::Arc;
-use std::task::Poll;
+use futures::{ready, Stream, StreamExt};
+use std::{sync::Arc, task::Poll};
 
 use super::{ExecutionPlan, RecordBatchStream, SendableRecordBatchStream};
 

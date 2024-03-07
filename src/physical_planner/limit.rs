@@ -1,14 +1,15 @@
-use super::RecordBatchStream;
-use super::SendableRecordBatchStream;
-use crate::common::record_batch::RecordBatch;
-use crate::common::schema::SchemaRef;
-use crate::physical_planner::ExecutionPlan;
-use crate::session::SessionState;
+use super::{RecordBatchStream, SendableRecordBatchStream};
+use crate::{
+    common::{record_batch::RecordBatch, schema::SchemaRef},
+    physical_planner::ExecutionPlan,
+    session::SessionState,
+};
 use anyhow::Result;
-use futures::Stream;
-use futures::StreamExt;
-use std::sync::Arc;
-use std::task::{Context, Poll};
+use futures::{Stream, StreamExt};
+use std::{
+    sync::Arc,
+    task::{Context, Poll},
+};
 
 #[derive(Debug)]
 pub struct LimitExec {

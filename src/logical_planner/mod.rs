@@ -4,17 +4,16 @@ pub mod query;
 pub mod statement;
 pub mod utils;
 
-use crate::logical_planner::utils::normalize_ident;
 use crate::{
     common::{
         config::ConfigOptions,
         table_reference::{OwnedTableReference, TableReference},
     },
+    logical_planner::utils::normalize_ident,
     storage::Table,
 };
 use anyhow::{anyhow, Result};
-use sqlparser::ast::Ident;
-use sqlparser::ast::ObjectName;
+use sqlparser::ast::{Ident, ObjectName};
 use std::sync::Arc;
 
 pub trait PlannerContext {

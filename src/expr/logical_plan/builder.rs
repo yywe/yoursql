@@ -1,26 +1,30 @@
-use crate::common::schema::SchemaRef;
-use crate::common::table_reference::OwnedTableReference;
-use crate::expr::expr_rewriter::{
-    normalize_col, normalize_col_with_schemas_and_ambiguity_check, normalize_cols,
-    rewrite_sort_cols_by_aggs,
+use crate::{
+    common::{schema::SchemaRef, table_reference::OwnedTableReference},
+    expr::{
+        expr_rewriter::{
+            normalize_col, normalize_col_with_schemas_and_ambiguity_check, normalize_cols,
+            rewrite_sort_cols_by_aggs,
+        },
+        utils::{columnize_expr, expand_qualified_wildcard, expand_wildcard},
+    },
+    storage::Table,
 };
-use crate::expr::utils::columnize_expr;
-use crate::expr::utils::expand_qualified_wildcard;
-use crate::expr::utils::expand_wildcard;
-use crate::storage::Table;
 
 use super::LogicalPlan;
-use crate::common::column::Column;
-use crate::common::schema::Field;
-use crate::expr::expr_schema::exprlist_to_fields;
-use crate::expr::logical_plan::EmptyRelation;
-use crate::expr::logical_plan::Expr;
-use crate::expr::logical_plan::{Aggregate, Filter, Projection, TableScan};
-use crate::expr::logical_plan::{JoinType, Schema};
+use crate::{
+    common::{column::Column, schema::Field},
+    expr::{
+        expr_schema::exprlist_to_fields,
+        logical_plan::{
+            Aggregate, EmptyRelation, Expr, Filter, JoinType, Projection, Schema, TableScan,
+        },
+    },
+};
 use anyhow::{anyhow, Result};
-use std::collections::HashMap;
-use std::collections::HashSet;
-use std::sync::Arc;
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 pub struct LogicalPlanBuilder {
     plan: LogicalPlan,

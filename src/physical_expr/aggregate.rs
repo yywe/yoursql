@@ -1,16 +1,20 @@
 use super::physical_expr::down_cast_any_ref;
-use crate::common::schema::Field;
-use crate::common::schema::Schema;
-use crate::common::types::DataType;
-use crate::expr::expr::AggregateFunctionType;
-use crate::physical_expr::accumulator::{
-    Accumulator, AvgAccumulator, CountAccumulator, MaxAccumulator, MinAccumulator, SumAccumulator,
+use crate::{
+    common::{
+        schema::{Field, Schema},
+        types::DataType,
+    },
+    expr::expr::AggregateFunctionType,
+    physical_expr::{
+        accumulator::{
+            Accumulator, AvgAccumulator, CountAccumulator, MaxAccumulator, MinAccumulator,
+            SumAccumulator,
+        },
+        PhysicalExpr,
+    },
 };
-use crate::physical_expr::PhysicalExpr;
 use anyhow::{anyhow, Result};
-use std::any::Any;
-use std::fmt::Debug;
-use std::sync::Arc;
+use std::{any::Any, fmt::Debug, sync::Arc};
 
 pub trait AggregateExpr: Send + Sync + Debug + PartialEq<dyn Any> {
     fn as_any(&self) -> &dyn Any;

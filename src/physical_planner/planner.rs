@@ -1,41 +1,33 @@
-use super::aggregate::PhysicalGroupBy;
-use super::limit::LimitExec;
-use super::nested_loop_join::NestedLoopJoinExec;
-use super::projection::ProjectionExec;
-use super::values::ValuesExec;
-use super::ExecutionPlan;
-use super::PhysicalPlanner;
-use crate::common::schema::Schema;
-use crate::expr::expr;
-use crate::expr::expr::BinaryExpr;
-use crate::expr::expr::Expr;
-use crate::expr::expr::{AggregateFunction, Between, Like};
-use crate::expr::expr_rewriter::unalias;
-use crate::expr::expr_rewriter::unnormlize_cols;
-use crate::expr::logical_plan::builder::build_join_schema;
-use crate::expr::logical_plan::builder::wrap_projection_for_join;
-use crate::expr::logical_plan::LogicalPlan;
-use crate::expr::logical_plan::TableScan;
-use crate::expr::logical_plan::Values;
-use crate::expr::logical_plan::{
-    Aggregate, CreateTable, CrossJoin, Insert, Join, Limit, Projection, Sort,
+use super::{
+    aggregate::PhysicalGroupBy, limit::LimitExec, nested_loop_join::NestedLoopJoinExec,
+    projection::ProjectionExec, values::ValuesExec, ExecutionPlan, PhysicalPlanner,
 };
-use crate::physical_expr::aggregate::create_aggregate_expr_impl;
-use crate::physical_expr::aggregate::AggregateExpr;
-use crate::physical_expr::planner::create_physical_expr;
-use crate::physical_expr::sort::PhysicalSortExpr;
-use crate::physical_expr::PhysicalExpr;
-use crate::physical_planner::aggregate::AggregateExec;
-use crate::physical_planner::create_table::CreateTableExec;
-use crate::physical_planner::cross_join::CrossJoinExec;
-use crate::physical_planner::filter::FilterExec;
-use crate::physical_planner::insert::InsertExec;
-use crate::physical_planner::sort::SortExec;
-use crate::{physical_planner::DefaultPhysicalPlanner, session::SessionState};
-use anyhow::Context;
-use anyhow::{anyhow, Result};
-use futures::future::BoxFuture;
-use futures::FutureExt;
+use crate::{
+    common::schema::Schema,
+    expr::{
+        expr,
+        expr::{AggregateFunction, Between, BinaryExpr, Expr, Like},
+        expr_rewriter::{unalias, unnormlize_cols},
+        logical_plan::{
+            builder::{build_join_schema, wrap_projection_for_join},
+            Aggregate, CreateTable, CrossJoin, Insert, Join, Limit, LogicalPlan, Projection, Sort,
+            TableScan, Values,
+        },
+    },
+    physical_expr::{
+        aggregate::{create_aggregate_expr_impl, AggregateExpr},
+        planner::create_physical_expr,
+        sort::PhysicalSortExpr,
+        PhysicalExpr,
+    },
+    physical_planner::{
+        aggregate::AggregateExec, create_table::CreateTableExec, cross_join::CrossJoinExec,
+        filter::FilterExec, insert::InsertExec, sort::SortExec, DefaultPhysicalPlanner,
+    },
+    session::SessionState,
+};
+use anyhow::{anyhow, Context, Result};
+use futures::{future::BoxFuture, FutureExt};
 use std::sync::Arc;
 
 impl DefaultPhysicalPlanner {

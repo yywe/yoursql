@@ -1,24 +1,25 @@
 use std::str::FromStr;
 
-use crate::common::column::Column;
-use crate::common::schema::Schema;
-use crate::common::table_reference::TableReference;
-use crate::common::types::{DataType, DataValue};
-use crate::expr::expr::Expr;
-use crate::expr::expr::Operator;
-use crate::expr::expr::{
-    AggregateFunction, AggregateFunctionType, Between, BinaryExpr, Like, Sort,
+use crate::{
+    common::{
+        column::Column,
+        schema::Schema,
+        table_reference::TableReference,
+        types::{DataType, DataValue},
+    },
+    expr::{
+        expr::{
+            AggregateFunction, AggregateFunctionType, Between, BinaryExpr, Expr, Like, Operator,
+            Sort,
+        },
+        expr_schema::ExprToSchema,
+        literal::lit,
+        utils::find_columns_referred_by_expr,
+    },
+    logical_planner::{normalize_ident, LogicalPlanner, PlannerContext},
 };
-use crate::expr::expr_schema::ExprToSchema;
-use crate::expr::literal::lit;
-use crate::expr::utils::find_columns_referred_by_expr;
-use crate::logical_planner::normalize_ident;
-use crate::logical_planner::LogicalPlanner;
-use crate::logical_planner::PlannerContext;
-use anyhow::Context;
-use anyhow::{anyhow, Result};
-use sqlparser::ast::Expr as SQLExpr;
-use sqlparser::ast::OrderByExpr;
+use anyhow::{anyhow, Context, Result};
+use sqlparser::ast::{Expr as SQLExpr, OrderByExpr};
 
 /// we need to convert the AST expressions to Expressions in logical plan
 
@@ -63,8 +64,7 @@ impl<'a, C: PlannerContext> LogicalPlanner<'a, C> {
         ast_expr: SQLExpr,
         schema: &Schema,
     ) -> Result<Expr> {
-        use sqlparser::ast::UnaryOperator;
-        use sqlparser::ast::Value;
+        use sqlparser::ast::{UnaryOperator, Value};
         match ast_expr {
             SQLExpr::Value(value) => {
                 match value {

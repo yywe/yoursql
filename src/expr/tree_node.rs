@@ -1,8 +1,7 @@
-use crate::common::tree_node::TreeNode;
-use crate::common::tree_node::VisitRecursion;
-use crate::expr::expr::AggregateFunction;
-use crate::expr::expr::Expr;
-use crate::expr::expr::{Between, BinaryExpr, Like, Sort};
+use crate::{
+    common::tree_node::{TreeNode, VisitRecursion},
+    expr::expr::{AggregateFunction, Between, BinaryExpr, Expr, Like, Sort},
+};
 use anyhow::Result;
 
 use super::logical_plan::LogicalPlan;

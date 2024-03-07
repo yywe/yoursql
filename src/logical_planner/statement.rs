@@ -1,6 +1,5 @@
 use super::{LogicalPlanner, PlannerContext};
-use crate::expr::logical_plan::LogicalPlan;
-use crate::logical_planner::object_name_to_table_refernce;
+use crate::{expr::logical_plan::LogicalPlan, logical_planner::object_name_to_table_refernce};
 use anyhow::{anyhow, Result};
 use sqlparser::ast::Statement;
 

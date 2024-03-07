@@ -1,8 +1,6 @@
 use anyhow::Result;
-use std::io;
-use std::io::Write;
-use yoursql::parser::parse;
-use yoursql::session::SessionContext;
+use std::{io, io::Write};
+use yoursql::{parser::parse, session::SessionContext};
 
 /// cargo run --package yoursql --bin memdb
 

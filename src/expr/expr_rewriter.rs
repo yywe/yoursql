@@ -1,15 +1,18 @@
-use super::expr::{AggregateFunction, Between, BinaryExpr, Like, Sort};
-use super::expr_schema::ExprToSchema;
-use super::logical_plan::builder::LogicalPlanBuilder;
-use crate::common::column::Column;
-use crate::common::schema::Schema;
-use crate::common::tree_node::Transformed;
-use crate::common::tree_node::TreeNode;
-use crate::expr::expr::Expr;
-use crate::expr::logical_plan::LogicalPlan;
+use super::{
+    expr::{AggregateFunction, Between, BinaryExpr, Like, Sort},
+    expr_schema::ExprToSchema,
+    logical_plan::builder::LogicalPlanBuilder,
+};
+use crate::{
+    common::{
+        column::Column,
+        schema::Schema,
+        tree_node::{Transformed, TreeNode},
+    },
+    expr::{expr::Expr, logical_plan::LogicalPlan},
+};
 use anyhow::Result;
-use std::collections::HashMap;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 pub fn normalize_col(expr: Expr, plan: &LogicalPlan) -> Result<Expr> {
     expr.transform(&|expr| {
@@ -314,13 +317,15 @@ pub fn unalias(expr: Expr) -> Expr {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::common::schema::Field;
-    use crate::common::schema::Schema;
-    use crate::common::types::DataType;
-    use crate::expr::utils::{col, min};
-    use crate::storage::empty::EmptyTable;
-    use std::collections::HashMap;
-    use std::sync::Arc;
+    use crate::{
+        common::{
+            schema::{Field, Schema},
+            types::DataType,
+        },
+        expr::utils::{col, min},
+        storage::empty::EmptyTable,
+    };
+    use std::{collections::HashMap, sync::Arc};
 
     fn make_input() -> LogicalPlanBuilder {
         let schema = Arc::new(Schema::new(

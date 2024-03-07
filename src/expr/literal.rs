@@ -1,5 +1,4 @@
-use crate::common::types::DataValue;
-use crate::expr::expr::Expr;
+use crate::{common::types::DataValue, expr::expr::Expr};
 pub trait Literal {
     fn lit(&self) -> Expr;
 }

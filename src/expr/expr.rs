@@ -1,12 +1,15 @@
-use crate::common::types::DataType;
-use crate::common::{column::Column, types::DataValue};
-use crate::expr_vec_fmt;
+use crate::{
+    common::{
+        column::Column,
+        types::{DataType, DataValue},
+    },
+    expr_vec_fmt,
+};
 use anyhow::{anyhow, Result};
 use std::collections::HashSet;
 
 use super::type_coercion::{coerce_types, NUMERICS};
-use crate::expr::type_coercion::signature;
-use crate::expr::utils::extract_columns_from_expr;
+use crate::expr::{type_coercion::signature, utils::extract_columns_from_expr};
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Expr {
     Alias(Box<Expr>, String),

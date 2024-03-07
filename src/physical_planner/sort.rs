@@ -1,19 +1,14 @@
 use super::{ExecutionPlan, RecordBatchStream, SendableRecordBatchStream};
-use crate::common::record_batch::RecordBatch;
-use crate::common::schema::SchemaRef;
-use crate::common::types::DataValue;
-use crate::physical_expr::sort::PhysicalSortExpr;
-use crate::physical_planner::utils::transpose_matrix;
-use crate::physical_planner::ExecutionState;
-use crate::session::SessionState;
+use crate::{
+    common::{record_batch::RecordBatch, schema::SchemaRef, types::DataValue},
+    physical_expr::sort::PhysicalSortExpr,
+    physical_planner::{utils::transpose_matrix, ExecutionState},
+    session::SessionState,
+};
 use anyhow::Result;
 use core::cmp::min;
-use futures::ready;
-use futures::Stream;
-use futures::StreamExt;
-use std::pin::Pin;
-use std::sync::Arc;
-use std::task::Poll;
+use futures::{ready, Stream, StreamExt};
+use std::{pin::Pin, sync::Arc, task::Poll};
 
 #[derive(Debug)]
 pub struct SortExec {

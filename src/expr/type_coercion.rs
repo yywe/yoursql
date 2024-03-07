@@ -1,5 +1,4 @@
-use crate::common::types::DataType;
-use crate::expr::expr::Operator;
+use crate::{common::types::DataType, expr::expr::Operator};
 use anyhow::{anyhow, Context, Result};
 
 use super::expr::AggregateFunctionType;

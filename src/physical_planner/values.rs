@@ -1,10 +1,10 @@
 use super::{ExecutionPlan, SendableRecordBatchStream};
-use crate::common::record_batch::RecordBatch;
-use crate::common::schema::SchemaRef;
-use crate::common::types::DataValue;
-use crate::physical_expr::PhysicalExpr;
-use crate::physical_planner::memory::MemoryStream;
-use crate::session::SessionState;
+use crate::{
+    common::{record_batch::RecordBatch, schema::SchemaRef, types::DataValue},
+    physical_expr::PhysicalExpr,
+    physical_planner::memory::MemoryStream,
+    session::SessionState,
+};
 use anyhow::{anyhow, Result};
 use std::sync::Arc;
 

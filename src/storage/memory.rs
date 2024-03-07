@@ -1,14 +1,16 @@
-use crate::common::{record_batch::RecordBatch, schema::SchemaRef};
-use crate::expr::expr::Expr;
-use crate::physical_planner::memory::MemoryExec;
-use crate::physical_planner::ExecutionPlan;
-use crate::session::SessionState;
-use crate::storage::Table;
+use crate::{
+    common::{record_batch::RecordBatch, schema::SchemaRef},
+    expr::expr::Expr,
+    physical_planner::{memory::MemoryExec, ExecutionPlan},
+    session::SessionState,
+    storage::Table,
+};
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
-use std::any::Any;
-use std::sync::Arc;
-use std::sync::Mutex;
+use std::{
+    any::Any,
+    sync::{Arc, Mutex},
+};
 
 #[derive(Debug)]
 pub struct MemTable {

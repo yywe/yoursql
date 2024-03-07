@@ -1,6 +1,8 @@
-use crate::common::types::{DataType, DataValue};
-use crate::expr::expr::Operator;
-use crate::physical_expr::physical_expr::eval_binary_numeric_value_pair;
+use crate::{
+    common::types::{DataType, DataValue},
+    expr::expr::Operator,
+    physical_expr::physical_expr::eval_binary_numeric_value_pair,
+};
 use anyhow::Result;
 use std::fmt::Debug;
 

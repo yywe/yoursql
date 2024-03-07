@@ -1,8 +1,6 @@
 use crate::expr::expr::Expr;
 use anyhow::Result;
-use sqlparser::ast::Ident;
-use sqlparser::dialect::GenericDialect;
-use sqlparser::parser::Parser;
+use sqlparser::{ast::Ident, dialect::GenericDialect, parser::Parser};
 use std::collections::HashMap;
 
 pub(crate) fn parse_identiiers(s: &str) -> Result<Vec<Ident>> {

@@ -1,25 +1,25 @@
 use super::{ExecutionPlan, RecordBatchStream, SendableRecordBatchStream};
-use crate::common::record_batch::RecordBatch;
-use crate::common::schema::{Field, Schema, SchemaRef};
-use crate::common::types::DataValue;
-use crate::physical_expr::accumulator::Accumulator;
-use crate::physical_expr::aggregate::AggregateExpr;
-use crate::physical_expr::PhysicalExpr;
-use crate::physical_planner::utils::transpose_matrix;
-use crate::physical_planner::ExecutionState;
-use crate::session::SessionState;
+use crate::{
+    common::{
+        record_batch::RecordBatch,
+        schema::{Field, Schema, SchemaRef},
+        types::DataValue,
+    },
+    physical_expr::{accumulator::Accumulator, aggregate::AggregateExpr, PhysicalExpr},
+    physical_planner::{utils::transpose_matrix, ExecutionState},
+    session::SessionState,
+};
 use anyhow::Result;
 use core::cmp::min;
-use futures::ready;
-use futures::stream::BoxStream;
-use futures::Stream;
-use futures::StreamExt;
+use futures::{ready, stream::BoxStream, Stream, StreamExt};
 use hashbrown::raw::RawTable;
-use std::collections::HashMap;
-use std::fmt::Debug;
-use std::hash::{DefaultHasher, Hash, Hasher};
-use std::sync::Arc;
-use std::task::Poll;
+use std::{
+    collections::HashMap,
+    fmt::Debug,
+    hash::{DefaultHasher, Hash, Hasher},
+    sync::Arc,
+    task::Poll,
+};
 
 #[derive(Clone, Debug, Default)]
 pub struct PhysicalGroupBy {

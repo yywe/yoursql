@@ -1,23 +1,25 @@
-use crate::common::column::Column;
-use crate::common::schema::Field;
-use crate::common::schema::{Schema, SchemaRef};
-use crate::common::table_reference::TableReference;
-use crate::common::tree_node::RewriteRecursion;
-use crate::common::tree_node::{TreeNodeRewriter, VisitRecursion};
-use crate::expr::expr::{BinaryExpr, Operator};
-use crate::expr::logical_plan::Insert;
-use crate::expr::logical_plan::LogicalPlan;
-use crate::expr::logical_plan::Values;
-use crate::expr::logical_plan::{
-    Aggregate, Filter, Join, Limit, Projection, Sort, SubqueryAlias, TableScan,
+use crate::{
+    common::{
+        column::Column,
+        schema::{Field, Schema, SchemaRef},
+        table_reference::TableReference,
+        tree_node::{RewriteRecursion, TreeNode, TreeNodeRewriter, VisitRecursion},
+    },
+    expr::{
+        expr::{BinaryExpr, Expr, Operator},
+        logical_plan::{
+            Aggregate, Filter, Insert, Join, Limit, LogicalPlan, Projection, Sort, SubqueryAlias,
+            TableScan, Values,
+        },
+    },
 };
-use crate::{common::tree_node::TreeNode, expr::expr::Expr};
 use anyhow::{anyhow, Result};
-use std::collections::HashSet;
-use std::sync::Arc;
+use std::{collections::HashSet, sync::Arc};
 
-use super::expr::{AggregateFunction, AggregateFunctionType};
-use super::logical_plan::builder::build_join_schema;
+use super::{
+    expr::{AggregateFunction, AggregateFunctionType},
+    logical_plan::builder::build_join_schema,
+};
 use crate::expr::logical_plan::builder::LogicalPlanBuilder;
 
 pub fn inspect_expr_pre<F>(expr: &Expr, mut f: F) -> Result<()>

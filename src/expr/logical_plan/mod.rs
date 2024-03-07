@@ -1,23 +1,18 @@
 pub mod builder;
 
-use crate::common::column::Column;
-use crate::common::schema::Field;
-use crate::common::schema::Schema;
-use crate::common::schema::EMPTY_SCHEMA_REF;
-use crate::common::tree_node::TreeNodeVisitor;
-use crate::common::tree_node::{TreeNode, VisitRecursion};
-use crate::common::types::DataType;
-use crate::expr::utils::from_plan;
 use crate::{
-    common::{schema::SchemaRef, table_reference::OwnedTableReference},
-    expr::expr::Expr,
+    common::{
+        column::Column,
+        schema::{Field, Schema, SchemaRef, EMPTY_SCHEMA_REF},
+        table_reference::OwnedTableReference,
+        tree_node::{TreeNode, TreeNodeVisitor, VisitRecursion},
+        types::DataType,
+    },
+    expr::{expr::Expr, utils::from_plan},
     storage::Table,
 };
 use anyhow::{anyhow, Result};
-use std::collections::HashSet;
-use std::fmt::Display;
-use std::hash::Hash;
-use std::sync::Arc;
+use std::{collections::HashSet, fmt::Display, hash::Hash, sync::Arc};
 
 use self::builder::build_join_schema;
 
@@ -701,17 +696,20 @@ impl std::fmt::Debug for LogicalPlan {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::common::schema::Field;
-    use crate::common::schema::Schema;
-    use crate::common::table_reference::TableReference;
-    use crate::common::types::DataType;
-    use crate::common::types::DataValue;
-    use crate::expr::expr::Sort;
-    use crate::expr::logical_plan::builder::LogicalPlanBuilder;
-    use crate::expr::utils::{col, min};
-    use crate::storage::empty::EmptyTable;
-    use std::collections::HashMap;
-    use std::sync::Arc;
+    use crate::{
+        common::{
+            schema::{Field, Schema},
+            table_reference::TableReference,
+            types::{DataType, DataValue},
+        },
+        expr::{
+            expr::Sort,
+            logical_plan::builder::LogicalPlanBuilder,
+            utils::{col, min},
+        },
+        storage::empty::EmptyTable,
+    };
+    use std::{collections::HashMap, sync::Arc};
 
     fn test_table_scan(
         name: impl Into<OwnedTableReference>,

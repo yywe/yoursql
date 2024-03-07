@@ -1,15 +1,16 @@
-use super::column::Column;
-use super::table_reference::OwnedTableReference;
-use super::table_reference::TableReference;
+use super::{
+    column::Column,
+    table_reference::{OwnedTableReference, TableReference},
+};
 use crate::common::types::DataType;
-use anyhow::anyhow;
-use anyhow::Context;
-use anyhow::Result;
+use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
-use std::hash::Hash;
-use std::ops::Deref;
-use std::sync::Arc;
+use std::{
+    collections::{HashMap, HashSet},
+    hash::Hash,
+    ops::Deref,
+    sync::Arc,
+};
 
 lazy_static::lazy_static! {
     pub static ref EMPTY_SCHEMA_REF: SchemaRef = Arc::new(Schema::empty());

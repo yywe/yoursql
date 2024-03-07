@@ -1,13 +1,13 @@
-use crate::common::{
-    schema::{ColumnMeta, Field, Schema},
-    types::DataType,
+use crate::{
+    common::{
+        schema::{ColumnMeta, Field, Schema},
+        types::DataType,
+    },
+    expr::{
+        expr::{AggregateFunction, AggregateFunctionType, BinaryExpr, Expr, Sort},
+        logical_plan::{Aggregate, LogicalPlan},
+    },
 };
-use crate::expr::expr::AggregateFunction;
-use crate::expr::expr::AggregateFunctionType;
-use crate::expr::expr::BinaryExpr;
-use crate::expr::expr::{Expr, Sort};
-use crate::expr::logical_plan::Aggregate;
-use crate::expr::logical_plan::LogicalPlan;
 use anyhow::{anyhow, Result};
 
 use super::type_coercion::get_result_type;
@@ -60,8 +60,7 @@ impl ExprToSchema for Expr {
     }
 
     fn nullable<M: ColumnMeta>(&self, schema: &M) -> Result<bool> {
-        use crate::expr::expr::Between;
-        use crate::expr::expr::Like;
+        use crate::expr::expr::{Between, Like};
         match self {
             Expr::Alias(expr, _) | Expr::Not(expr) | Expr::Sort(Sort { expr, .. }) => {
                 expr.nullable(schema)

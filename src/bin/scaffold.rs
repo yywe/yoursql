@@ -1,18 +1,16 @@
 use anyhow::Result;
-use std::collections::HashMap;
-use std::sync::Arc;
-use yoursql::common::record_batch::RecordBatch;
-use yoursql::common::schema::Field;
-use yoursql::common::schema::Schema;
-use yoursql::common::table_reference::OwnedTableReference;
-use yoursql::common::table_reference::TableReference;
-use yoursql::common::types::DataType;
-use yoursql::common::types::DataValue;
-use yoursql::physical_planner::print_batch_stream;
-use yoursql::physical_planner::RecordBatchStream;
-use yoursql::session::SessionContext;
-use yoursql::storage::memory::MemTable;
-use yoursql::storage::Table;
+use std::{collections::HashMap, sync::Arc};
+use yoursql::{
+    common::{
+        record_batch::RecordBatch,
+        schema::{Field, Schema},
+        table_reference::{OwnedTableReference, TableReference},
+        types::{DataType, DataValue},
+    },
+    physical_planner::{print_batch_stream, RecordBatchStream},
+    session::SessionContext,
+    storage::{memory::MemTable, Table},
+};
 
 /// cargo run --package yoursql --bin scaffold
 #[tokio::main]

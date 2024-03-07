@@ -1,15 +1,17 @@
 use super::RecordBatchStream;
-use crate::common::record_batch::RecordBatch;
-use crate::common::schema::SchemaRef;
-use crate::physical_planner::ExecutionPlan;
-use crate::physical_planner::SendableRecordBatchStream;
-use crate::session::SessionState;
+use crate::{
+    common::{record_batch::RecordBatch, schema::SchemaRef},
+    physical_planner::{ExecutionPlan, SendableRecordBatchStream},
+    session::SessionState,
+};
 use anyhow::{anyhow, Result};
 use futures::Stream;
-use std::any::Any;
-use std::pin::Pin;
-use std::sync::Arc;
-use std::task::{Context, Poll};
+use std::{
+    any::Any,
+    pin::Pin,
+    sync::Arc,
+    task::{Context, Poll},
+};
 
 #[allow(dead_code)]
 #[derive(Debug)]

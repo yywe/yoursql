@@ -1,15 +1,16 @@
-use crate::common::column::Column;
-use crate::common::record_batch::RecordBatch;
-use crate::common::schema::Field;
-use crate::common::schema::{Schema, SchemaRef};
-use crate::common::types::DataValue;
-use crate::physical_expr::PhysicalExpr;
-use crate::session::SessionState;
+use crate::{
+    common::{
+        column::Column,
+        record_batch::RecordBatch,
+        schema::{Field, Schema, SchemaRef},
+        types::DataValue,
+    },
+    physical_expr::PhysicalExpr,
+    session::SessionState,
+};
 use anyhow::{anyhow, Result};
-use futures::Stream;
-use futures::StreamExt;
-use std::collections::HashMap;
-use std::sync::Arc;
+use futures::{Stream, StreamExt};
+use std::{collections::HashMap, sync::Arc};
 
 use super::{ExecutionPlan, RecordBatchStream, SendableRecordBatchStream};
 

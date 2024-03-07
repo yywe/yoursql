@@ -1,12 +1,11 @@
 use super::PhysicalExpr;
-use crate::common::schema::Schema;
-use crate::common::types::DataValue;
-use crate::expr::expr::BinaryExpr as LogicalBinaryExpr;
-use crate::expr::expr::Expr;
-use crate::expr::expr::Operator;
-use crate::expr::expr::{binary_expr, Between, Like};
-use crate::physical_expr::physical_expr::{BinaryExpr, Column, Literal};
-use crate::physical_expr::physical_expr::{IsNotNullExpr, IsNullExpr, LikeExpr, NotExpr};
+use crate::{
+    common::{schema::Schema, types::DataValue},
+    expr::expr::{binary_expr, Between, BinaryExpr as LogicalBinaryExpr, Expr, Like, Operator},
+    physical_expr::physical_expr::{
+        BinaryExpr, Column, IsNotNullExpr, IsNullExpr, LikeExpr, Literal, NotExpr,
+    },
+};
 use anyhow::{Context, Result};
 use std::sync::Arc;
 

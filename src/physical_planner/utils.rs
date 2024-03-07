@@ -1,15 +1,19 @@
 use super::ExecutionPlan;
-use crate::common::record_batch::RecordBatch;
-use crate::common::types::DataValue;
-use crate::session::SessionState;
+use crate::{
+    common::{record_batch::RecordBatch, types::DataValue},
+    session::SessionState,
+};
 use anyhow::{anyhow, Result};
 use core::future::Future;
-use futures::future::{BoxFuture, Shared};
-use futures::StreamExt;
-use futures::{ready, FutureExt};
+use futures::{
+    future::{BoxFuture, Shared},
+    ready, FutureExt, StreamExt,
+};
 use parking_lot::Mutex;
-use std::sync::Arc;
-use std::task::{Context, Poll};
+use std::{
+    sync::Arc,
+    task::{Context, Poll},
+};
 
 type OnceFutPending<T> = Shared<BoxFuture<'static, SharedResult<Arc<T>>>>;
 pub type SharedResult<T> = core::result::Result<T, Arc<anyhow::Error>>;

@@ -1,30 +1,26 @@
-use crate::catalog::DBList;
-use crate::catalog::MemoryDB;
-use crate::catalog::MemoryDBList;
-use crate::catalog::DB;
-use crate::common::config::ConfigOptions;
-use crate::common::record_batch::RecordBatch;
-use crate::common::table_reference::OwnedTableReference;
-use crate::common::table_reference::ResolvedTableReference;
-use crate::common::table_reference::TableReference;
-use crate::expr::logical_plan::LogicalPlan;
-use crate::logical_planner::object_name_to_table_refernce;
-use crate::logical_planner::LogicalPlanner;
-use crate::logical_planner::ParserOptions;
-use crate::logical_planner::PlannerContext;
-use crate::physical_planner::DefaultPhysicalPlanner;
-use crate::physical_planner::ExecutionPlan;
-use crate::physical_planner::PhysicalPlanner;
-use crate::storage::Table;
-use anyhow::Context;
-use anyhow::Result;
+use crate::{
+    catalog::{DBList, MemoryDB, MemoryDBList, DB},
+    common::{
+        config::ConfigOptions,
+        record_batch::RecordBatch,
+        table_reference::{OwnedTableReference, ResolvedTableReference, TableReference},
+    },
+    expr::logical_plan::LogicalPlan,
+    logical_planner::{
+        object_name_to_table_refernce, LogicalPlanner, ParserOptions, PlannerContext,
+    },
+    physical_planner::{DefaultPhysicalPlanner, ExecutionPlan, PhysicalPlanner},
+    storage::Table,
+};
+use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use futures::TryStreamExt;
 use parking_lot::RwLock;
-use std::collections::hash_map::Entry;
-use std::collections::HashMap;
-use std::ops::ControlFlow;
-use std::sync::Arc;
+use std::{
+    collections::{hash_map::Entry, HashMap},
+    ops::ControlFlow,
+    sync::Arc,
+};
 use uuid::Uuid;
 
 #[derive(Clone)]
@@ -323,15 +319,16 @@ impl Default for SessionContext {
 #[cfg(test)]
 pub mod test {
     use super::*;
-    use crate::common::record_batch::RecordBatch;
-    use crate::common::schema::Field;
-    use crate::common::schema::Schema;
-    use crate::common::table_reference::OwnedTableReference;
-    use crate::common::types::DataType;
-    use crate::common::types::DataValue;
-    use crate::parser::parse;
-    use crate::storage::empty::EmptyTable;
-    use crate::storage::memory::MemTable;
+    use crate::{
+        common::{
+            record_batch::RecordBatch,
+            schema::{Field, Schema},
+            table_reference::OwnedTableReference,
+            types::{DataType, DataValue},
+        },
+        parser::parse,
+        storage::{empty::EmptyTable, memory::MemTable},
+    };
     use anyhow::Result;
     use futures::StreamExt;
     use std::collections::HashMap;

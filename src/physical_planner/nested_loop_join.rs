@@ -1,19 +1,18 @@
 use super::{ExecutionPlan, RecordBatchStream, SendableRecordBatchStream};
-use crate::common::record_batch::RecordBatch;
-use crate::common::schema::Schema;
-use crate::common::types::DataValue;
-use crate::expr::logical_plan::JoinType;
-use crate::physical_expr::PhysicalExpr;
-use crate::physical_planner::utils::collect_batch_stream;
-use crate::physical_planner::utils::{OnceAsync, OnceFut};
-use crate::session::SessionState;
-use crate::{expr::logical_plan::builder::build_join_schema, physical_planner::SchemaRef};
+use crate::{
+    common::{record_batch::RecordBatch, schema::Schema, types::DataValue},
+    expr::logical_plan::{builder::build_join_schema, JoinType},
+    physical_expr::PhysicalExpr,
+    physical_planner::{
+        utils::{collect_batch_stream, OnceAsync, OnceFut},
+        SchemaRef,
+    },
+    session::SessionState,
+};
 use anyhow::Result;
 use futures::{ready, Stream, StreamExt};
 use itertools::multiunzip;
-use std::collections::HashMap;
-use std::sync::Arc;
-use std::task::Poll;
+use std::{collections::HashMap, sync::Arc, task::Poll};
 #[derive(Debug)]
 pub struct NestedLoopJoinExec {
     pub left: Arc<dyn ExecutionPlan>,

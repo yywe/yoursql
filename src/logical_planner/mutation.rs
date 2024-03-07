@@ -1,8 +1,8 @@
 use super::{LogicalPlanner, PlannerContext};
-use crate::common::schema::SchemaRef;
-use crate::expr::logical_plan::Insert;
-use crate::expr::logical_plan::Values;
-use crate::{common::table_reference::OwnedTableReference, expr::logical_plan::LogicalPlan};
+use crate::{
+    common::{schema::SchemaRef, table_reference::OwnedTableReference},
+    expr::logical_plan::{Insert, LogicalPlan, Values},
+};
 use anyhow::{anyhow, Result};
 use sqlparser::ast::{Ident, Query};
 use std::sync::Arc;

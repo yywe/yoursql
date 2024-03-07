@@ -1,20 +1,18 @@
 use super::SendableRecordBatchStream;
-use crate::common::record_batch::RecordBatch;
-use crate::common::schema::SchemaRef;
-use crate::physical_planner::ExecutionPlan;
-use crate::physical_planner::RecordBatchStream;
-use crate::session::SessionState;
-use crate::storage::Table;
+use crate::{
+    common::{record_batch::RecordBatch, schema::SchemaRef},
+    physical_planner::{ExecutionPlan, RecordBatchStream},
+    session::SessionState,
+    storage::Table,
+};
 use anyhow::Result;
-use futures::ready;
-use futures::Future;
-use futures::FutureExt;
-use futures::Stream;
-use futures::StreamExt;
-use std::fmt::Debug;
-use std::pin::Pin;
-use std::sync::Arc;
-use std::task::{Context, Poll};
+use futures::{ready, Future, FutureExt, Stream, StreamExt};
+use std::{
+    fmt::Debug,
+    pin::Pin,
+    sync::Arc,
+    task::{Context, Poll},
+};
 
 pub struct InsertExec {
     input: Arc<dyn ExecutionPlan>,
