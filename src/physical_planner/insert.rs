@@ -6,10 +6,10 @@ use crate::physical_planner::RecordBatchStream;
 use crate::session::SessionState;
 use crate::storage::Table;
 use anyhow::Result;
-use futures::Stream;
+use futures::ready;
 use futures::Future;
 use futures::FutureExt;
-use futures::ready;
+use futures::Stream;
 use futures::StreamExt;
 use std::fmt::Debug;
 use std::pin::Pin;
@@ -77,9 +77,8 @@ impl ExecutionPlan for InsertExec {
     }
 }
 
-
 struct TableInsertFuture {
-    future: Pin<Box<dyn Future<Output=Result<usize>> + Send>>,
+    future: Pin<Box<dyn Future<Output = Result<usize>> + Send>>,
 }
 impl Future for TableInsertFuture {
     type Output = Result<usize>;
@@ -103,23 +102,23 @@ impl RecordBatchStream for InsertStreamAdapter {
 impl Stream for InsertStreamAdapter {
     type Item = Result<RecordBatch>;
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        loop {            
+        loop {
             if let Some(fut) = &mut self.pending_insert_fut {
                 let result = ready!(fut.poll_unpin(cx));
                 match result {
                     Ok(_) => {
                         self.pending_insert_fut = None;
-                        continue
-                    },
-                    Err(e)=>{
+                        continue;
+                    }
+                    Err(e) => {
                         println!("error detected while insert:{:?}", e);
                         self.pending_insert_fut = None;
-                        return Poll::Ready(Some(Err(e.into())))
-                    },
+                        return Poll::Ready(Some(Err(e.into())));
+                    }
                 }
-            }else{
+            } else {
                 match ready!(self.data.poll_next_unpin(cx)) {
-                    /* took a lot of time to figure things out, there are two concerns 
+                    /* took a lot of time to figure things out, there are two concerns
                         here. 1. self.table is immutable reference, we cannot have immutable
                         reference and mutable reference (mut self) at the same time. so by clone
                         self.table and use it, we do not need to use self.table.insert but use
@@ -128,18 +127,18 @@ impl Stream for InsertStreamAdapter {
                         the cloned_tbl to the future instance and addressed the lifetime issue
                         if we remove the move keyword, will see cloned_tbl does not live enough.
                     */
-                    Some(Ok(rows))=>{
+                    Some(Ok(rows)) => {
                         let cloned_tbl = Arc::clone(&self.table);
                         let fut = async move {
                             let out = cloned_tbl.insert(rows).await;
                             out
                         };
-                        self.pending_insert_fut = Some(TableInsertFuture{future: Box::pin(fut)});
-                    },
-                    Some(Err(e))=>{
-                        return Poll::Ready(Some(Err(e.into())))
+                        self.pending_insert_fut = Some(TableInsertFuture {
+                            future: Box::pin(fut),
+                        });
                     }
-                    None=>{
+                    Some(Err(e)) => return Poll::Ready(Some(Err(e.into()))),
+                    None => {
                         return Poll::Ready(None);
                     }
                 }

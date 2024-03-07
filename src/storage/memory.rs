@@ -55,7 +55,7 @@ impl Table for MemTable {
         )?))
     }
     async fn insert(&self, batch: RecordBatch) -> Result<usize> {
-        //TODO: the storage engine should be able to detect constraints 
+        //TODO: the storage engine should be able to detect constraints
         //(e.g, uniqueness, nullablity), add null or default here or at upper layer?
         if !batch.schema.eq(&self.schema) {
             return Err(anyhow!(
