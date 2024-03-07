@@ -54,10 +54,9 @@ impl Table for MemTable {
             projection.cloned(),
         )?))
     }
-    fn insert(&self, batch: RecordBatch) -> Result<usize> {
-        //TODO: the storage engine should be able to detect constraints (e.g, uniqueness, nullablity)
-        //for now simply insert the batch into memory table
-        //TODO: add null or default here or at upper layer?
+    async fn insert(&self, batch: RecordBatch) -> Result<usize> {
+        //TODO: the storage engine should be able to detect constraints 
+        //(e.g, uniqueness, nullablity), add null or default here or at upper layer?
         if !batch.schema.eq(&self.schema) {
             return Err(anyhow!(
                 "The schema in data {:?} does not equal table schema {:?}",

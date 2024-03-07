@@ -7,6 +7,9 @@ use crate::session::SessionState;
 use crate::storage::Table;
 use anyhow::Result;
 use futures::Stream;
+use futures::Future;
+use futures::FutureExt;
+use futures::ready;
 use futures::StreamExt;
 use std::fmt::Debug;
 use std::pin::Pin;
@@ -69,14 +72,26 @@ impl ExecutionPlan for InsertExec {
             data: data,
             schema: self.schema.clone(),
             table: self.table.clone(),
+            pending_insert_fut: None,
         }))
     }
 }
 
+
+struct TableInsertFuture {
+    future: Pin<Box<dyn Future<Output=Result<usize>> + Send>>,
+}
+impl Future for TableInsertFuture {
+    type Output = Result<usize>;
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        self.future.as_mut().poll(cx)
+    }
+}
 struct InsertStreamAdapter {
     data: SendableRecordBatchStream,
     schema: SchemaRef,
     table: Arc<dyn Table>,
+    pending_insert_fut: Option<TableInsertFuture>,
 }
 
 impl RecordBatchStream for InsertStreamAdapter {
@@ -88,34 +103,47 @@ impl RecordBatchStream for InsertStreamAdapter {
 impl Stream for InsertStreamAdapter {
     type Item = Result<RecordBatch>;
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let poll;
-        loop {
-            match self.data.poll_next_unpin(cx) {
-                Poll::Ready(batch) => match batch {
-                    Some(Ok(rows)) => {
-                        println!("insert into rows:{:?}", rows);
-                        match self.table.insert(rows) {
-                            Ok(_) => continue,
-                            Err(e) => {
-                                //TODO: add output log for this case
-                                println!("error detected while insert:{:?}", e);
-                                poll = Poll::Ready(None);
-                                break;
-                            }
-                        }
+        loop {            
+            if let Some(fut) = &mut self.pending_insert_fut {
+                let result = ready!(fut.poll_unpin(cx));
+                match result {
+                    Ok(_) => {
+                        self.pending_insert_fut = None;
+                        continue
+                    },
+                    Err(e)=>{
+                        println!("error detected while insert:{:?}", e);
+                        self.pending_insert_fut = None;
+                        return Poll::Ready(Some(Err(e.into())))
+                    },
+                }
+            }else{
+                match ready!(self.data.poll_next_unpin(cx)) {
+                    /* took a lot of time to figure things out, there are two concerns 
+                        here. 1. self.table is immutable reference, we cannot have immutable
+                        reference and mutable reference (mut self) at the same time. so by clone
+                        self.table and use it, we do not need to use self.table.insert but use
+                        the cloned Arc<dyn Table>. 2. the lifetime of cloned Arc<dyn Table>, must
+                        live together with the whole future. so here we use async move and package
+                        the cloned_tbl to the future instance and addressed the lifetime issue
+                        if we remove the move keyword, will see cloned_tbl does not live enough.
+                    */
+                    Some(Ok(rows))=>{
+                        let cloned_tbl = Arc::clone(&self.table);
+                        let fut = async move {
+                            let out = cloned_tbl.insert(rows).await;
+                            out
+                        };
+                        self.pending_insert_fut = Some(TableInsertFuture{future: Box::pin(fut)});
+                    },
+                    Some(Err(e))=>{
+                        return Poll::Ready(Some(Err(e.into())))
                     }
-                    // if error or done, break the loop
-                    _ => {
-                        poll = Poll::Ready(None);
-                        break;
+                    None=>{
+                        return Poll::Ready(None);
                     }
-                },
-                Poll::Pending => {
-                    poll = Poll::Pending;
-                    break;
                 }
             }
         }
-        poll
     }
 }

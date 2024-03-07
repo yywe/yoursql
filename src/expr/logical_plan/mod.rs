@@ -698,7 +698,6 @@ impl std::fmt::Debug for LogicalPlan {
     }
 }
 
-/*
 #[cfg(test)]
 mod test {
     use super::*;
@@ -839,4 +838,3 @@ mod test {
         Ok(())
     }
 }
-*/

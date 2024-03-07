@@ -39,7 +39,7 @@ impl Table for EmptyTable {
         let projected = project_table(&self.schema, projection)?;
         Ok(Arc::new(EmptyExec::new(false, projected)))
     }
-    fn insert(&self, _batch: RecordBatch) -> Result<usize> {
+    async fn insert(&self, _batch: RecordBatch) -> Result<usize> {
         Err(anyhow!("cannot insert into EmptyTable"))
     }
 }

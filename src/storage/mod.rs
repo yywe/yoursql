@@ -19,7 +19,7 @@ pub trait Table: Sync + Send {
         projection: Option<&Vec<usize>>,
         filters: &[Expr],
     ) -> Result<Arc<dyn ExecutionPlan>>;
-    fn insert(&self, batch: RecordBatch) -> Result<usize>;
+    async fn insert(&self, batch: RecordBatch) -> Result<usize>;
 }
 
 pub fn project_table(table: &SchemaRef, projection: Option<&Vec<usize>>) -> Result<SchemaRef> {

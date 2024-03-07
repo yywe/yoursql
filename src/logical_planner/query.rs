@@ -725,7 +725,7 @@ impl<'a, C: PlannerContext> LogicalPlanner<'a, C> {
     }
 }
 
-/*
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -750,4 +750,3 @@ mod test {
         Ok(())
     }
 }
-*/

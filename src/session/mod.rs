@@ -320,7 +320,7 @@ impl Default for SessionContext {
     }
 }
 
-/*
+
 #[cfg(test)]
 pub mod test {
     use super::*;
@@ -594,4 +594,4 @@ pub mod test {
         Ok(())
     }
 }
-*/
+
