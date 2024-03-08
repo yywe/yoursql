@@ -5,6 +5,7 @@ use tokio::{io::AsyncWrite, net::TcpListener};
 use yoursql::{parser::parse, session::SessionContext};
 
 /// cargo run --package yoursql --bin server
+/// mysql -h 127.0.0.1
 
 struct Backend {
     session: Arc<SessionContext>,

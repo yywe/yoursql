@@ -13,10 +13,11 @@ use anyhow::Result;
 use core::cmp::min;
 use futures::{ready, stream::BoxStream, Stream, StreamExt};
 use hashbrown::raw::RawTable;
+use std::collections::hash_map::DefaultHasher;
 use std::{
     collections::HashMap,
     fmt::Debug,
-    hash::{DefaultHasher, Hash, Hasher},
+    hash::{Hash, Hasher},
     sync::Arc,
     task::Poll,
 };
