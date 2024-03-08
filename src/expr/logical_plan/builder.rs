@@ -1,26 +1,30 @@
-use crate::common::schema::SchemaRef;
-use crate::common::table_reference::OwnedTableReference;
-use crate::expr::expr_rewriter::{
-    normalize_col, normalize_col_with_schemas_and_ambiguity_check, normalize_cols,
-    rewrite_sort_cols_by_aggs,
+use crate::{
+    common::{schema::SchemaRef, table_reference::OwnedTableReference},
+    expr::{
+        expr_rewriter::{
+            normalize_col, normalize_col_with_schemas_and_ambiguity_check, normalize_cols,
+            rewrite_sort_cols_by_aggs,
+        },
+        utils::{columnize_expr, expand_qualified_wildcard, expand_wildcard},
+    },
+    storage::Table,
 };
-use crate::expr::utils::columnize_expr;
-use crate::expr::utils::expand_qualified_wildcard;
-use crate::expr::utils::expand_wildcard;
-use crate::storage::Table;
 
 use super::LogicalPlan;
-use std::collections::HashSet;
-use crate::common::column::Column;
-use crate::common::schema::Field;
-use crate::expr::expr_schema::exprlist_to_fields;
-use crate::expr::logical_plan::EmptyRelation;
-use crate::expr::logical_plan::Expr;
-use crate::expr::logical_plan::{Aggregate, Filter, Projection, TableScan};
-use crate::expr::logical_plan::{JoinType, Schema};
+use crate::{
+    common::{column::Column, schema::Field},
+    expr::{
+        expr_schema::exprlist_to_fields,
+        logical_plan::{
+            Aggregate, EmptyRelation, Expr, Filter, JoinType, Projection, Schema, TableScan,
+        },
+    },
+};
 use anyhow::{anyhow, Result};
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 pub struct LogicalPlanBuilder {
     plan: LogicalPlan,
@@ -522,22 +526,37 @@ pub fn validate_unique_names<'a>(
     })
 }
 
-pub fn wrap_projection_for_join(join_keys: &[Expr], input: LogicalPlan) -> Result<(LogicalPlan, Vec<Column>, bool)> {
+pub fn wrap_projection_for_join(
+    join_keys: &[Expr],
+    input: LogicalPlan,
+) -> Result<(LogicalPlan, Vec<Column>, bool)> {
     let input_schema = input.output_schema();
-    let cloned_join_keys = join_keys.iter().map(|key|key.clone()).collect::<Vec<_>>();
-    let need_project = join_keys.iter().any(|key|!matches!(key, Expr::Column(_)));
+    let cloned_join_keys = join_keys.iter().map(|key| key.clone()).collect::<Vec<_>>();
+    let need_project = join_keys.iter().any(|key| !matches!(key, Expr::Column(_)));
     let plan = if need_project {
         // first convert the schema fields to Expr, (cause later we need Expr to project)
         let mut projection = expand_wildcard(input_schema.as_ref(), &input)?;
         // then get join item  that is not a Column, i.e, if try_into_col() is error then get its expr
-        let join_key_items = cloned_join_keys.iter().flat_map(|expr|expr.try_into_col().is_err().then_some(expr)).cloned().collect::<HashSet<Expr>>();
+        let join_key_items = cloned_join_keys
+            .iter()
+            .flat_map(|expr| expr.try_into_col().is_err().then_some(expr))
+            .cloned()
+            .collect::<HashSet<Expr>>();
         projection.extend(join_key_items);
-        LogicalPlanBuilder::from(input).project(projection)?.build()?
-    }else{
+        LogicalPlanBuilder::from(input)
+            .project(projection)?
+            .build()?
+    } else {
         input
     };
 
     // if try_into_col fail, i.e, if join item is not a column, create a column
-    let join_on = cloned_join_keys.into_iter().map(|key|key.try_into_col().or_else(|_| Ok(Column::from_name(key.display_name()?)))).collect::<Result<Vec<_>>>()?;
+    let join_on = cloned_join_keys
+        .into_iter()
+        .map(|key| {
+            key.try_into_col()
+                .or_else(|_| Ok(Column::from_name(key.display_name()?)))
+        })
+        .collect::<Result<Vec<_>>>()?;
     Ok((plan, join_on, need_project))
 }

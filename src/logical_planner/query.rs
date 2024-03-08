@@ -1,40 +1,31 @@
 use super::{object_name_to_table_refernce, LogicalPlanner, PlannerContext};
-use crate::common::column::Column;
-use crate::common::schema::Field;
-use crate::common::schema::Schema;
-use crate::common::table_reference::TableReference;
-use crate::common::utils::extract_aliases;
-use crate::expr::expr::Expr;
-use crate::expr::expr_rewriter::normalize_col;
-use crate::expr::expr_rewriter::normalize_col_with_schemas_and_ambiguity_check;
-use crate::expr::expr_rewriter::resolve_alias_to_exprs;
-use crate::expr::expr_rewriter::resolve_columns;
-use crate::expr::logical_plan::builder::project;
-use crate::expr::logical_plan::builder::LogicalPlanBuilder;
-use crate::expr::logical_plan::Filter;
-use crate::expr::logical_plan::JoinType;
-use crate::expr::logical_plan::SubqueryAlias;
-use crate::expr::utils::col;
-use crate::expr::utils::extract_columns_from_expr;
-use crate::expr::utils::find_aggregate_exprs;
-//use crate::expr::utils::find_column_exprs;
-use crate::expr::expr::Sort;
-use crate::expr::logical_plan::CreateTable;
-use crate::logical_planner::utils::check_columns_satisfy_exprs;
-use crate::logical_planner::utils::expr_as_column_expr;
-use crate::logical_planner::utils::rebase_expr;
-use sqlparser::ast::{ColumnDef, OrderByExpr};
-
-use crate::{common::table_reference::OwnedTableReference, expr::logical_plan::LogicalPlan};
-use anyhow::{anyhow, Result};
-use sqlparser::ast::Expr as SQLExpr;
-use sqlparser::ast::Offset as SQLOffset;
-use sqlparser::ast::{
-    Ident, ObjectName, Query, Select, SelectItem, SetExpr, TableAlias, TableFactor, TableWithJoins,
+use crate::{
+    common::{
+        column::Column,
+        schema::{Field, Schema},
+        table_reference::{OwnedTableReference, TableReference},
+        utils::extract_aliases,
+    },
+    expr::{
+        expr::{Expr, Sort},
+        expr_rewriter::{
+            normalize_col, normalize_col_with_schemas_and_ambiguity_check, resolve_alias_to_exprs,
+            resolve_columns,
+        },
+        logical_plan::{
+            builder::{project, LogicalPlanBuilder},
+            CreateTable, Filter, JoinType, LogicalPlan, SubqueryAlias, Values,
+        },
+        utils::{col, extract_columns_from_expr, find_aggregate_exprs},
+    },
+    logical_planner::utils::{check_columns_satisfy_exprs, expr_as_column_expr, rebase_expr},
 };
-use sqlparser::ast::{Join, JoinConstraint};
-use std::collections::HashSet;
-use std::sync::Arc;
+use anyhow::{anyhow, Result};
+use sqlparser::ast::{
+    ColumnDef, Expr as SQLExpr, Ident, Join, JoinConstraint, ObjectName, Offset as SQLOffset,
+    OrderByExpr, Query, Select, SelectItem, SetExpr, TableAlias, TableFactor, TableWithJoins,
+};
+use std::{collections::HashSet, sync::Arc};
 
 impl<'a, C: PlannerContext> LogicalPlanner<'a, C> {
     pub fn plan_query(&self, query: Query) -> Result<LogicalPlan> {
@@ -49,7 +40,7 @@ impl<'a, C: PlannerContext> LogicalPlanner<'a, C> {
     pub fn plan_create_table(
         &self,
         table_name: ObjectName,
-        columns: Vec<ColumnDef>
+        columns: Vec<ColumnDef>,
     ) -> Result<LogicalPlan> {
         let table_reference = object_name_to_table_refernce(table_name, true)?;
         let fields = columns
@@ -77,8 +68,31 @@ impl<'a, C: PlannerContext> LogicalPlanner<'a, C> {
     pub fn plan_set_expr(&self, set_expr: SetExpr) -> Result<LogicalPlan> {
         match set_expr {
             SetExpr::Select(s) => self.plan_select(*s),
+            SetExpr::Values(values) => self.plan_values(values),
             _ => Err(anyhow!(format!("set expr {set_expr} not supported yet"))),
         }
+    }
+
+    ///here simply convert to ast::Expr to logical Expr based on empty schema
+    /// the datafusion impl also infer schema from values, refer LogicalPlanBuilder::values
+    /// here in plan_insert, we will project the schema based on columns_ident
+    /// TODO: remove to mutation
+    pub fn plan_values(&self, values: sqlparser::ast::Values) -> Result<LogicalPlan> {
+        let schema = Schema::empty();
+        let values = values
+            .rows
+            .into_iter()
+            .map(|row| {
+                row.into_iter()
+                    .map(|v| self.sql_expr_to_logical_expr(v, &schema))
+                    .collect::<Result<Vec<_>>>()
+            })
+            .collect::<Result<Vec<_>>>()?;
+        //values should not be based on any other schema, thus just empty
+        Ok(LogicalPlan::Values(Values {
+            schema: Arc::new(schema),
+            values: values,
+        }))
     }
 
     pub fn plan_select(&self, select: Select) -> Result<LogicalPlan> {
@@ -652,9 +666,10 @@ impl<'a, C: PlannerContext> LogicalPlanner<'a, C> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::parser::parse;
-    use crate::session::test::init_mem_testdb;
-    use crate::session::SessionContext;
+    use crate::{
+        parser::parse,
+        session::{test::init_mem_testdb, SessionContext},
+    };
     #[tokio::test]
     async fn test_plan_select() -> Result<()> {
         let mut session = SessionContext::default();

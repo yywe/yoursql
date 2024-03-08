@@ -1,19 +1,21 @@
-use std::fmt::{Debug, Display};
-use std::any::Any;
-use crate::common::record_batch::RecordBatch;
-use crate::common::schema::Schema;
-use crate::common::types::DataType;
+use crate::common::{
+    record_batch::RecordBatch,
+    schema::Schema,
+    types::{DataType, DataValue},
+};
 use anyhow::Result;
-use crate::common::types::DataValue;
-use std::sync::Arc;
-use std::hash::{Hash, Hasher};
+use std::{
+    any::Any,
+    fmt::{Debug, Display},
+    hash::{Hash, Hasher},
+    sync::Arc,
+};
 
-pub mod planner;
-pub mod physical_expr;
 pub mod accumulator;
 pub mod aggregate;
+pub mod physical_expr;
+pub mod planner;
 pub mod sort;
-
 
 pub trait PhysicalExpr: Send + Sync + Display + Debug + PartialEq<dyn Any> {
     fn as_any(&self) -> &dyn Any;
@@ -21,7 +23,10 @@ pub trait PhysicalExpr: Send + Sync + Display + Debug + PartialEq<dyn Any> {
     fn nullable(&self, input_schema: &Schema) -> Result<bool>;
     fn evaluate(&self, batch: &RecordBatch) -> Result<Vec<DataValue>>;
     fn children(&self) -> Vec<Arc<dyn PhysicalExpr>>;
-    fn with_new_children(self: Arc<Self>, children: Vec<Arc<dyn PhysicalExpr>>)->Result<Arc<dyn PhysicalExpr>>;
+    fn with_new_children(
+        self: Arc<Self>,
+        children: Vec<Arc<dyn PhysicalExpr>>,
+    ) -> Result<Arc<dyn PhysicalExpr>>;
     fn dyn_hash(&self, _state: &mut dyn Hasher);
 }
 

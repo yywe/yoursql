@@ -1,7 +1,6 @@
 use super::schema::SchemaRef;
 use crate::common::types::DataValue;
-use anyhow::Context;
-use anyhow::Result;
+use anyhow::{Context, Result};
 use std::sync::Arc;
 
 #[derive(Clone, Debug)]

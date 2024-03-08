@@ -1,15 +1,18 @@
-use super::expr::{AggregateFunction, Between, BinaryExpr, Like, Sort};
-use super::expr_schema::ExprToSchema;
-use super::logical_plan::builder::LogicalPlanBuilder;
-use crate::common::column::Column;
-use crate::common::schema::Schema;
-use crate::common::tree_node::Transformed;
-use crate::common::tree_node::TreeNode;
-use crate::expr::expr::Expr;
-use crate::expr::logical_plan::LogicalPlan;
+use super::{
+    expr::{AggregateFunction, Between, BinaryExpr, Like, Sort},
+    expr_schema::ExprToSchema,
+    logical_plan::builder::LogicalPlanBuilder,
+};
+use crate::{
+    common::{
+        column::Column,
+        schema::Schema,
+        tree_node::{Transformed, TreeNode},
+    },
+    expr::{expr::Expr, logical_plan::LogicalPlan},
+};
 use anyhow::Result;
-use std::collections::HashMap;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 pub fn normalize_col(expr: Expr, plan: &LogicalPlan) -> Result<Expr> {
     expr.transform(&|expr| {
@@ -273,20 +276,18 @@ pub fn resolve_alias_to_exprs(expr: &Expr, aliases: &HashMap<String, Expr>) -> R
 }
 
 pub fn resolve_columns(expr: &Expr, plan: &LogicalPlan) -> Result<Expr> {
-    clone_with_replacement(expr, &|e|{
-        match e {
-            Expr::Column(col) => {
-                let s = plan.output_schema();
-                let field = s.field_from_column(col)?;
-                Ok(Some(Expr::Column(field.qualified_column())))
-            }
-            _=>Ok(None)
+    clone_with_replacement(expr, &|e| match e {
+        Expr::Column(col) => {
+            let s = plan.output_schema();
+            let field = s.field_from_column(col)?;
+            Ok(Some(Expr::Column(field.qualified_column())))
         }
+        _ => Ok(None),
     })
 }
 
 pub fn unnormalize_col(expr: Expr) -> Expr {
-    expr.transform(&|e|{
+    expr.transform(&|e| {
         Ok({
             if let Expr::Column(c) = e {
                 let col = Column {
@@ -294,34 +295,37 @@ pub fn unnormalize_col(expr: Expr) -> Expr {
                     name: c.name,
                 };
                 Transformed::Yes(Expr::Column(col))
-            }else{
+            } else {
                 Transformed::No(e)
             }
         })
-    }).expect("unnormalize is infallable")
+    })
+    .expect("unnormalize is infallable")
 }
 
-pub fn unnormlize_cols(exprs: impl IntoIterator<Item=Expr>) -> Vec<Expr> {
+pub fn unnormlize_cols(exprs: impl IntoIterator<Item = Expr>) -> Vec<Expr> {
     exprs.into_iter().map(unnormalize_col).collect()
 }
 
 pub fn unalias(expr: Expr) -> Expr {
     match expr {
-        Expr::Alias(sub_expr,_) => unalias(*sub_expr),
-        _=>expr,
+        Expr::Alias(sub_expr, _) => unalias(*sub_expr),
+        _ => expr,
     }
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::common::schema::Field;
-    use crate::common::schema::Schema;
-    use crate::common::types::DataType;
-    use crate::expr::utils::{col, min};
-    use crate::storage::empty::EmptyTable;
-    use std::collections::HashMap;
-    use std::sync::Arc;
+    use crate::{
+        common::{
+            schema::{Field, Schema},
+            types::DataType,
+        },
+        expr::utils::{col, min},
+        storage::empty::EmptyTable,
+    };
+    use std::{collections::HashMap, sync::Arc};
 
     fn make_input() -> LogicalPlanBuilder {
         let schema = Arc::new(Schema::new(

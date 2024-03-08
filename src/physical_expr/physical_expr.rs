@@ -1,16 +1,19 @@
-use crate::common::record_batch::RecordBatch;
-use crate::common::schema::Schema;
-use crate::common::types::DataType;
-use crate::common::types::DataValue;
-use crate::expr::expr::Operator;
-use crate::expr::type_coercion::get_result_type;
-use anyhow::Context;
-use anyhow::{anyhow, Result};
+use crate::{
+    common::{
+        record_batch::RecordBatch,
+        schema::Schema,
+        types::{DataType, DataValue},
+    },
+    expr::{expr::Operator, type_coercion::get_result_type},
+};
+use anyhow::{anyhow, Context, Result};
 use regex::Regex;
-use std::any::Any;
-use std::fmt::Debug;
-use std::hash::{Hash, Hasher};
-use std::sync::Arc;
+use std::{
+    any::Any,
+    fmt::Debug,
+    hash::{Hash, Hasher},
+    sync::Arc,
+};
 
 use super::PhysicalExpr;
 
@@ -552,7 +555,7 @@ impl PartialEq<dyn Any> for LikeExpr {
 fn simple_like(value: &String, pattern: &String, case_sensitive: bool) -> Result<DataValue> {
     let (value, pattern) = if case_sensitive == false {
         (value.to_lowercase(), pattern.to_lowercase())
-    }else{
+    } else {
         (value.clone(), pattern.clone())
     };
     let regexp = Regex::new(&format!(

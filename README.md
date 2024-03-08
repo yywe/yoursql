@@ -1,5 +1,8 @@
 # Motivation of Yoursql
-Yoursql is a learning project to explore how SQL query engine is implemented in Rust language.
+Yoursql is a learning project to explore how SQL query engine is implemented in Rust language. 
+
+# Limitations
+Currently DDL and DML implementation is very minimal, just support creating table and inserting data (In-Memory). They are simply provided so we can insert data and play with it. Also, there are no query optimizers yet.
 
 # Setup and Run
 You will need Rust environment. Then clone the repo and start from test cases in: src/session/mod.rs, e.g, to run a simple SQL:
@@ -28,7 +31,7 @@ test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 16 filtered out; fin
 - [x] Physical Plan: Limit & Offset
 - [ ] Logical Optimizer
 - [ ] Physical Optimizer
-- [ ] Storage Layer
+- [ ] Storage Layer / Transaction
 - [ ] Integrate Query Engine into Server based on https://github.com/datafuselabs/opensrv
 
 # References
@@ -38,7 +41,10 @@ While learning database implemenations, I have investigated some other database 
 * [databend](https://github.com/datafuselabs/databend): the query engine of databend is interesting, it is not a classic volcano model. The query plan is converted into pipline, and the pipeline is connected as a graph. The execution is driven by the state machine with explicit scheduling. The execution engine is inspired from clickhouse.
 * [risingwave](https://github.com/risingwavelabs/risingwave): risingwave is a stream database, but it can be used as a regular batch database as well. risingwave execution engine heavily used RPC, the physical plan is split to fragment and sent to different nodes for distributed execution. I assume most of the concepts (e.g, fragment) comes from Presto.
 
-Further learning goal is to implement a simplifed query engine like databend (pipline->DAG) or risingwave (plan fragment and distributed execution). 
+# Future Learning/Investigation
+- [ ] learn databend and make a pipelined engine
+- [ ] learn risingwave and make a distributed fragmented execution engine
+- [ ] is it possible to compile the plan to native code?
 
 # Miscellaneous
 Original PoC branch: https://github.com/yywe/yoursql/tree/main

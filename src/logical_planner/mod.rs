@@ -1,17 +1,20 @@
-pub mod utils;
-pub mod statement;
-pub mod query;
 pub mod mutation;
 pub mod plan_expr;
+pub mod query;
+pub mod statement;
+pub mod utils;
 
-use crate::{common::{table_reference::{TableReference, OwnedTableReference}, config::ConfigOptions}, storage::Table};
-use crate::logical_planner::utils::normalize_ident;
-use anyhow::{Result, anyhow};
+use crate::{
+    common::{
+        config::ConfigOptions,
+        table_reference::{OwnedTableReference, TableReference},
+    },
+    logical_planner::utils::normalize_ident,
+    storage::Table,
+};
+use anyhow::{anyhow, Result};
+use sqlparser::ast::{Ident, ObjectName};
 use std::sync::Arc;
-use sqlparser::ast::Ident;
-use sqlparser::ast::ObjectName;
-
-
 
 pub trait PlannerContext {
     fn get_table_provider(&self, name: TableReference) -> Result<Arc<dyn Table>>;
@@ -33,7 +36,6 @@ impl Default for ParserOptions {
     }
 }
 
-
 #[derive(Debug)]
 pub struct IdentNormalizer {
     normalize: bool,
@@ -41,20 +43,18 @@ pub struct IdentNormalizer {
 
 impl Default for IdentNormalizer {
     fn default() -> Self {
-        Self {
-            normalize: true
-        }
+        Self { normalize: true }
     }
 }
 
 impl IdentNormalizer {
     pub fn new(normalize: bool) -> Self {
-        Self {normalize}
+        Self { normalize }
     }
     pub fn normalize(&self, ident: Ident) -> String {
         if self.normalize {
             normalize_ident(ident)
-        } else{
+        } else {
             ident.value
         }
     }
@@ -80,12 +80,18 @@ impl<'a, C: PlannerContext> LogicalPlanner<'a, C> {
     }
 }
 
-pub fn object_name_to_table_refernce(object_name: ObjectName, enable_normalization: bool) -> Result<OwnedTableReference> {
+pub fn object_name_to_table_refernce(
+    object_name: ObjectName,
+    enable_normalization: bool,
+) -> Result<OwnedTableReference> {
     let ObjectName(idents) = object_name;
     idents_to_table_reference(idents, enable_normalization)
 }
 
-pub fn idents_to_table_reference(idents: Vec<Ident>, enable_normalization: bool) -> Result<OwnedTableReference> {
+pub fn idents_to_table_reference(
+    idents: Vec<Ident>,
+    enable_normalization: bool,
+) -> Result<OwnedTableReference> {
     struct IdentTaker(Vec<Ident>);
     impl IdentTaker {
         fn take(&mut self, enable_normalization: bool) -> String {
@@ -104,8 +110,6 @@ pub fn idents_to_table_reference(idents: Vec<Ident>, enable_normalization: bool)
             let database = taker.take(enable_normalization);
             Ok(OwnedTableReference::full(database, table))
         }
-        _=> {
-            Err(anyhow!("Invalid identifier"))
-        }
+        _ => Err(anyhow!("Invalid identifier")),
     }
 }

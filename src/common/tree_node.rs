@@ -23,22 +23,24 @@ pub enum Transformed<T> {
 impl<T> Transformed<T> {
     pub fn into(self) -> T {
         match self {
-            Transformed::Yes(t)=>t,
-            Transformed::No(t)=>t,
+            Transformed::Yes(t) => t,
+            Transformed::No(t) => t,
         }
     }
 
     pub fn into_pair(self) -> (T, bool) {
         match self {
-            Transformed::Yes(t)=>(t, true),
-            Transformed::No(t)=>(t, false),
+            Transformed::Yes(t) => (t, true),
+            Transformed::No(t) => (t, false),
         }
     }
 }
 
 pub trait TreeNode: Sized {
     fn apply<F>(&self, op: &mut F) -> Result<VisitRecursion>
-    where F: FnMut(&Self) -> Result<VisitRecursion> {
+    where
+        F: FnMut(&Self) -> Result<VisitRecursion>,
+    {
         match op(self)? {
             VisitRecursion::Continue => {}
             VisitRecursion::Skip => return Ok(VisitRecursion::Continue),
@@ -47,15 +49,15 @@ pub trait TreeNode: Sized {
         self.apply_children(&mut |node| node.apply(op))
     }
 
-
-    fn apply_children<F>(&self, op: &mut F) -> Result<VisitRecursion> 
-    where  F: FnMut(&Self) -> Result<VisitRecursion>;
+    fn apply_children<F>(&self, op: &mut F) -> Result<VisitRecursion>
+    where
+        F: FnMut(&Self) -> Result<VisitRecursion>;
 
     /// apply can visit the tree, but here again we have this visit function
     /// the main motivation is to provide an interface that can do some job
     /// before and after the visit, using apply can simply visit but cannot record
     /// before and after node visit status
-    /// 
+    ///
     /// similar motivation for below tranform and rewrite operation
     fn visit<V: TreeNodeVisitor<N = Self>>(&self, visitor: &mut V) -> Result<VisitRecursion> {
         match visitor.pre_visit(self)? {
@@ -72,42 +74,48 @@ pub trait TreeNode: Sized {
     }
 
     fn transform<F>(self, op: &F) -> Result<Self>
-    where F: Fn(Self) -> Result<Transformed<Self>> {
+    where
+        F: Fn(Self) -> Result<Transformed<Self>>,
+    {
         self.transform_up(op)
     }
 
     fn transform_down<F>(self, op: &F) -> Result<Self>
-    where F: Fn(Self) -> Result<Transformed<Self>> {
+    where
+        F: Fn(Self) -> Result<Transformed<Self>>,
+    {
         let after_op = op(self)?.into();
-        after_op.map_children(|node|node.transform_down(op))
+        after_op.map_children(|node| node.transform_down(op))
     }
 
-    fn transform_up<F>(self, op: &F) -> Result<Self> 
-    where F: Fn(Self) -> Result<Transformed<Self>>{
-        let after_op_children = self.map_children(|node|node.transform_up(op))?;
+    fn transform_up<F>(self, op: &F) -> Result<Self>
+    where
+        F: Fn(Self) -> Result<Transformed<Self>>,
+    {
+        let after_op_children = self.map_children(|node| node.transform_up(op))?;
         let new_node = op(after_op_children)?.into();
         Ok(new_node)
     }
 
     fn map_children<F>(self, transform: F) -> Result<Self>
-    where F: FnMut(Self) -> Result<Self>;
+    where
+        F: FnMut(Self) -> Result<Self>;
 
-    fn rewrite<R: TreeNodeRewriter<N = Self>>(self, rewriter: &mut R)->Result<Self> {
-        let need_mutate = match rewriter.pre_visit(&self)?{
+    fn rewrite<R: TreeNodeRewriter<N = Self>>(self, rewriter: &mut R) -> Result<Self> {
+        let need_mutate = match rewriter.pre_visit(&self)? {
             RewriteRecursion::Mutate => return rewriter.mutate(self),
             RewriteRecursion::Stop => return Ok(self),
-            RewriteRecursion::Continue=>true,
-            RewriteRecursion::Skip=>false,
+            RewriteRecursion::Continue => true,
+            RewriteRecursion::Skip => false,
         };
-        let after_op_children = self.map_children(|node|node.rewrite(rewriter))?;
+        let after_op_children = self.map_children(|node| node.rewrite(rewriter))?;
         if need_mutate {
             rewriter.mutate(after_op_children)
-        }else{
+        } else {
             Ok(after_op_children)
         }
     }
 }
-
 
 pub trait TreeNodeVisitor: Sized {
     type N: TreeNode;
@@ -127,13 +135,19 @@ pub trait TreeNodeRewriter: Sized {
 
 pub trait DynTreeNode {
     fn arc_chilren(&self) -> Vec<Arc<Self>>;
-    fn with_new_arc_children(&self, arc_self: Arc<Self>, new_children: Vec<Arc<Self>>)->Result<Arc<Self>>;
+    fn with_new_arc_children(
+        &self,
+        arc_self: Arc<Self>,
+        new_children: Vec<Arc<Self>>,
+    ) -> Result<Arc<Self>>;
 }
 
 impl<T: DynTreeNode + ?Sized> TreeNode for Arc<T> {
-    fn apply_children<F>(&self, op: &mut F) -> Result<VisitRecursion> 
-        where  F: FnMut(&Self) -> Result<VisitRecursion> {
-        for child in self.arc_chilren(){
+    fn apply_children<F>(&self, op: &mut F) -> Result<VisitRecursion>
+    where
+        F: FnMut(&Self) -> Result<VisitRecursion>,
+    {
+        for child in self.arc_chilren() {
             match op(&child)? {
                 VisitRecursion::Continue => {}
                 VisitRecursion::Skip => return Ok(VisitRecursion::Continue),
@@ -144,13 +158,15 @@ impl<T: DynTreeNode + ?Sized> TreeNode for Arc<T> {
     }
 
     fn map_children<F>(self, transform: F) -> Result<Self>
-        where F: FnMut(Self) -> Result<Self> {
+    where
+        F: FnMut(Self) -> Result<Self>,
+    {
         let children = self.arc_chilren();
         if !children.is_empty() {
             let new_children: Result<Vec<_>> = children.into_iter().map(transform).collect();
             let arc_self = Arc::clone(&self);
             self.with_new_arc_children(arc_self, new_children?)
-        }else{
+        } else {
             Ok(self)
         }
     }

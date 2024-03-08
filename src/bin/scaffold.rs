@@ -1,18 +1,16 @@
 use anyhow::Result;
-use std::collections::HashMap;
-use std::sync::Arc;
-use yoursql::common::record_batch::RecordBatch;
-use yoursql::common::table_reference::TableReference;
-use yoursql::common::table_reference::OwnedTableReference;
-use yoursql::common::types::DataType;
-use yoursql::common::types::DataValue;
-use yoursql::common::schema::Field;
-use yoursql::common::schema::Schema;
-use yoursql::physical_planner::print_batch_stream;
-use yoursql::physical_planner::RecordBatchStream;
-use yoursql::session::SessionContext;
-use yoursql::storage::memory::MemTable;
-use yoursql::storage::Table;
+use std::{collections::HashMap, sync::Arc};
+use yoursql::{
+    common::{
+        record_batch::RecordBatch,
+        schema::{Field, Schema},
+        table_reference::{OwnedTableReference, TableReference},
+        types::{DataType, DataValue},
+    },
+    physical_planner::{print_batch_stream, RecordBatchStream},
+    session::SessionContext,
+    storage::{memory::MemTable, Table},
+};
 
 /// cargo run --package yoursql --bin scaffold
 #[tokio::main]
@@ -26,10 +24,9 @@ async fn main() -> Result<()> {
     };
     let memtable_def = Schema::new(
         vec![
-            Field::new("a", DataType::Int64, false,  Some(qualifier.clone())),
-            Field::new("b", DataType::Boolean, false,  Some(qualifier.clone())),
-            Field::new("c", DataType::Utf8, false,  Some(qualifier.clone())),
-           
+            Field::new("a", DataType::Int64, false, Some(qualifier.clone())),
+            Field::new("b", DataType::Boolean, false, Some(qualifier.clone())),
+            Field::new("c", DataType::Utf8, false, Some(qualifier.clone())),
         ],
         HashMap::new(),
     );

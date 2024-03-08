@@ -1,8 +1,10 @@
-use std::fmt::Debug;
+use crate::{
+    common::types::{DataType, DataValue},
+    expr::expr::Operator,
+    physical_expr::physical_expr::eval_binary_numeric_value_pair,
+};
 use anyhow::Result;
-use crate::expr::expr::Operator;
-use crate::common::types::{DataValue, DataType};
-use crate::physical_expr::physical_expr::eval_binary_numeric_value_pair;
+use std::fmt::Debug;
 
 pub trait Accumulator: Send + Sync + Debug {
     fn update_batch(&mut self, values: &[&[DataValue]]) -> Result<()>;
@@ -16,7 +18,9 @@ pub struct SumAccumulator {
 
 impl SumAccumulator {
     pub fn try_new(data_type: &DataType) -> Result<Self> {
-        Ok(Self{sum: DataValue::try_from(data_type)?})
+        Ok(Self {
+            sum: DataValue::try_from(data_type)?,
+        })
     }
 }
 
@@ -27,7 +31,7 @@ impl Accumulator for SumAccumulator {
         for value in values {
             if initiated == true {
                 self.sum = eval_binary_numeric_value_pair(&self.sum, value, Operator::Plus)?;
-            }else{
+            } else {
                 self.sum = value.clone();
                 initiated = true;
             }
@@ -38,7 +42,6 @@ impl Accumulator for SumAccumulator {
     fn evaluate(&self) -> Result<DataValue> {
         Ok(self.sum.clone())
     }
-
 }
 
 #[derive(Debug)]
@@ -48,7 +51,9 @@ pub struct MaxAccumulator {
 
 impl MaxAccumulator {
     pub fn try_new(data_type: &DataType) -> Result<Self> {
-        Ok(Self{max: DataValue::try_from(data_type)?})
+        Ok(Self {
+            max: DataValue::try_from(data_type)?,
+        })
     }
 }
 
@@ -61,7 +66,7 @@ impl Accumulator for MaxAccumulator {
                 if *value > self.max {
                     self.max = value.clone();
                 }
-            }else{
+            } else {
                 self.max = value.clone();
                 initiated = true;
             }
@@ -73,7 +78,6 @@ impl Accumulator for MaxAccumulator {
     }
 }
 
-
 #[derive(Debug)]
 pub struct MinAccumulator {
     min: DataValue,
@@ -81,7 +85,9 @@ pub struct MinAccumulator {
 
 impl MinAccumulator {
     pub fn try_new(data_type: &DataType) -> Result<Self> {
-        Ok(Self{min: DataValue::try_from(data_type)?})
+        Ok(Self {
+            min: DataValue::try_from(data_type)?,
+        })
     }
 }
 
@@ -94,7 +100,7 @@ impl Accumulator for MinAccumulator {
                 if *value < self.min {
                     self.min = value.clone();
                 }
-            }else{
+            } else {
                 self.min = value.clone();
                 initiated = true;
             }
@@ -106,7 +112,6 @@ impl Accumulator for MinAccumulator {
     }
 }
 
-
 #[derive(Debug)]
 pub struct CountAccumulator {
     count: i64,
@@ -114,7 +119,7 @@ pub struct CountAccumulator {
 
 impl CountAccumulator {
     pub fn new() -> Result<Self> {
-        Ok(Self{count: 0})
+        Ok(Self { count: 0 })
     }
 }
 
@@ -132,17 +137,16 @@ impl Accumulator for CountAccumulator {
                 }
             }
             if is_null {
-                null_row +=1;
+                null_row += 1;
             }
         }
-        self.count += (total_row-null_row) as i64;
+        self.count += (total_row - null_row) as i64;
         Ok(())
     }
     fn evaluate(&self) -> Result<DataValue> {
         Ok(DataValue::Int64(Some(self.count)))
     }
 }
-
 
 #[derive(Debug)]
 pub struct AvgAccumulator {
@@ -152,7 +156,10 @@ pub struct AvgAccumulator {
 
 impl AvgAccumulator {
     pub fn try_new(data_type: &DataType) -> Result<Self> {
-        Ok(Self{sum: DataValue::try_from(data_type)?, count: 0})
+        Ok(Self {
+            sum: DataValue::try_from(data_type)?,
+            count: 0,
+        })
     }
 }
 
@@ -163,7 +170,7 @@ impl Accumulator for AvgAccumulator {
         for value in values {
             if initiated == true {
                 self.sum = eval_binary_numeric_value_pair(&self.sum, value, Operator::Plus)?;
-            }else{
+            } else {
                 self.sum = value.clone();
                 initiated = true;
             }
@@ -172,7 +179,11 @@ impl Accumulator for AvgAccumulator {
         Ok(())
     }
     fn evaluate(&self) -> Result<DataValue> {
-        eval_binary_numeric_value_pair(&self.sum, &DataValue::Int64(Some(self.count)), Operator::Divide)
+        eval_binary_numeric_value_pair(
+            &self.sum,
+            &DataValue::Int64(Some(self.count)),
+            Operator::Divide,
+        )
     }
 }
 
@@ -182,44 +193,59 @@ mod test {
     #[test]
     fn test_sum_accumulator() -> Result<()> {
         let mut mysum1 = SumAccumulator::try_new(&DataType::Float32)?;
-        mysum1.update_batch(&[&[DataValue::Float32(Some(1.0)),DataValue::Float32(Some(3.0))]])?;
+        mysum1.update_batch(&[&[DataValue::Float32(Some(1.0)), DataValue::Float32(Some(3.0))]])?;
         assert_eq!(mysum1.evaluate()?, DataValue::Float32(Some(4.0)));
         let mut mysum2 = SumAccumulator::try_new(&DataType::Float32)?;
-        mysum2.update_batch(&[&[DataValue::Float32(Some(1.0)),DataValue::Float32(Some(3.0)), DataValue::Float32(Some(5.0))]])?;
+        mysum2.update_batch(&[&[
+            DataValue::Float32(Some(1.0)),
+            DataValue::Float32(Some(3.0)),
+            DataValue::Float32(Some(5.0)),
+        ]])?;
         assert_eq!(mysum2.evaluate()?, DataValue::Float32(Some(9.0)));
         Ok(())
     }
     #[test]
     fn test_max_accumulator() -> Result<()> {
         let mut mymax1 = MaxAccumulator::try_new(&DataType::Float32)?;
-        mymax1.update_batch(&[&[DataValue::Float32(Some(1.0)),DataValue::Float32(Some(3.0))]])?;
+        mymax1.update_batch(&[&[DataValue::Float32(Some(1.0)), DataValue::Float32(Some(3.0))]])?;
         assert_eq!(mymax1.evaluate()?, DataValue::Float32(Some(3.0)));
         let mut mymax2 = MaxAccumulator::try_new(&DataType::Float32)?;
-        mymax2.update_batch(&[&[DataValue::Float32(Some(1.0)),DataValue::Float32(Some(3.0)), DataValue::Float32(Some(5.0))]])?;
+        mymax2.update_batch(&[&[
+            DataValue::Float32(Some(1.0)),
+            DataValue::Float32(Some(3.0)),
+            DataValue::Float32(Some(5.0)),
+        ]])?;
         assert_eq!(mymax2.evaluate()?, DataValue::Float32(Some(5.0)));
         Ok(())
     }
     #[test]
     fn test_min_accumulator() -> Result<()> {
         let mut mymin1 = MinAccumulator::try_new(&DataType::Float32)?;
-        mymin1.update_batch(&[&[DataValue::Float32(Some(1.0)),DataValue::Float32(Some(3.0))]])?;
+        mymin1.update_batch(&[&[DataValue::Float32(Some(1.0)), DataValue::Float32(Some(3.0))]])?;
         assert_eq!(mymin1.evaluate()?, DataValue::Float32(Some(1.0)));
         let mut mymin2 = MinAccumulator::try_new(&DataType::Float32)?;
-        mymin2.update_batch(&[&[DataValue::Float32(Some(2.0)),DataValue::Float32(Some(3.0)), DataValue::Float32(Some(5.0))]])?;
+        mymin2.update_batch(&[&[
+            DataValue::Float32(Some(2.0)),
+            DataValue::Float32(Some(3.0)),
+            DataValue::Float32(Some(5.0)),
+        ]])?;
         assert_eq!(mymin2.evaluate()?, DataValue::Float32(Some(2.0)));
         Ok(())
     }
     #[test]
     fn test_count_accumulator() -> Result<()> {
         let mut mycount = CountAccumulator::new()?;
-        mycount.update_batch(&[&[DataValue::Float32(Some(1.0)),DataValue::Float32(Some(3.0))],&[DataValue::Float32(Some(1.0)),DataValue::Float32(Some(3.0))]])?;
+        mycount.update_batch(&[
+            &[DataValue::Float32(Some(1.0)), DataValue::Float32(Some(3.0))],
+            &[DataValue::Float32(Some(1.0)), DataValue::Float32(Some(3.0))],
+        ])?;
         assert_eq!(mycount.evaluate()?, DataValue::Int64(Some(2)));
         Ok(())
     }
     #[test]
     fn test_avg_accumulator() -> Result<()> {
         let mut myavg = AvgAccumulator::try_new(&DataType::Float32)?;
-        myavg.update_batch(&[&[DataValue::Float32(Some(1.0)),DataValue::Float32(Some(4.0))]])?;
+        myavg.update_batch(&[&[DataValue::Float32(Some(1.0)), DataValue::Float32(Some(4.0))]])?;
         assert_eq!(myavg.evaluate()?, DataValue::Float32(Some(2.5)));
         Ok(())
     }
