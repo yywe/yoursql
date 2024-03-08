@@ -47,42 +47,74 @@ impl<W: AsyncWrite + Send + Unpin> AsyncMysqlShim<W> for Backend {
         results: QueryResultWriter<'a, W>,
     ) -> io::Result<()> {
         println!("execute sql {:?}", sql);
-        results.start(&[]).await?.finish().await
-        /* 
+        /* note we cannot map error and ? like below:
         let statement = parse(sql).map_err(|err| {
             std::io::Error::new(
                 std::io::ErrorKind::Other,
                 format!("Parser error: {:?}", err),
             )
         })?;
+        , the error will cause connection lost
+        like:
+        mysql> create t1;
+            ERROR 2013 (HY000): Lost connection to MySQL server during query
+            No connection. Trying to reconnect...
+            Connection id:    8
+            Current database: *** NONE ***
+        instead, we need to handle the error explicity.
+        FOR SIMPLICITY, ALL LATER ERROR ARE SET AS: ErrorKind::ER_PARSE_ERROR
+        */
+        let statement = match parse(sql) {
+            Ok(statement) => statement,
+            Err(e) => {
+                results
+                    .error(
+                        ErrorKind::ER_PARSE_ERROR,
+                        AsRef::<[u8]>::as_ref(&e.to_string()),
+                    )
+                    .await?;
+                return Ok(());
+            }
+        };
         let session_state = self.session.state.read().clone();
-        let logical_plan = session_state
-            .make_logical_plan(statement)
-            .await
-            .map_err(|err| {
-                std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    format!("logical plan error: {:?}", err),
-                )
-            })?;
-        let physical_plan = session_state
-            .create_physical_plan(&logical_plan)
-            .await
-            .map_err(|err| {
-                std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    format!("physical plan error: {:?}", err),
-                )
-            })?;
-        let record_batches = session_state
-            .execute_physical_plan(physical_plan)
-            .await
-            .map_err(|err| {
-                std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    format!("execution error: {:?}", err),
-                )
-            })?;
+        let logical_plan = match session_state.make_logical_plan(statement).await {
+            Ok(logical_plan) => logical_plan,
+            Err(e) => {
+                results
+                    .error(
+                        ErrorKind::ER_PARSE_ERROR,
+                        AsRef::<[u8]>::as_ref(&e.to_string()),
+                    )
+                    .await?;
+                return Ok(());
+            }
+        };
+
+        let physical_plan = match session_state.create_physical_plan(&logical_plan).await {
+            Ok(physical_plan) => physical_plan,
+            Err(e) => {
+                results
+                    .error(
+                        ErrorKind::ER_PARSE_ERROR,
+                        AsRef::<[u8]>::as_ref(&e.to_string()),
+                    )
+                    .await?;
+                return Ok(());
+            }
+        };
+
+        let record_batches = match session_state.execute_physical_plan(physical_plan).await {
+            Ok(record_batches) => record_batches,
+            Err(e) => {
+                results
+                    .error(
+                        ErrorKind::ER_PARSE_ERROR,
+                        AsRef::<[u8]>::as_ref(&e.to_string()),
+                    )
+                    .await?;
+                return Ok(());
+            }
+        };
         if record_batches.len() == 0 {
             return results
                 .completed(OkResponse {
@@ -112,9 +144,7 @@ impl<W: AsyncWrite + Send + Unpin> AsyncMysqlShim<W> for Backend {
                 }
             }
             return row_writer.finish().await;
-            
         }
-         */
     }
 }
 
