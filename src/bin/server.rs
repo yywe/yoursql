@@ -8,8 +8,6 @@ use tokio::net::TcpListener;
 use yoursql::common::record_batch::RecordBatch;
 use yoursql::common::schema::RESP_SCHEMA_REF;
 use yoursql::common::types::DataValue;
-use yoursql::expr::logical_plan::LogicalPlan;
-use yoursql::parser::parse;
 use yoursql::session::SessionContext;
 
 /// cargo run --package yoursql --bin server
@@ -55,62 +53,8 @@ impl<W: AsyncWrite + Send + Unpin> AsyncMysqlShim<W> for Backend {
         results: QueryResultWriter<'a, W>,
     ) -> io::Result<()> {
         println!("execute sql {:?}", sql);
-        // note we cannot map error and ? like below:
-        // let statement = parse(sql).map_err(|err| {
-        // std::io::Error::new(
-        // std::io::ErrorKind::Other,
-        // format!("Parser error: {:?}", err),
-        // )
-        // })?;
-        // , the error will cause connection lost
-        // like:
-        // mysql> create t1;
-        // ERROR 2013 (HY000): Lost connection to MySQL server during query
-        // No connection. Trying to reconnect...
-        // Connection id:    8
-        // Current database: *** NONE ***
-        // instead, we need to handle the error explicity.
-        // FOR SIMPLICITY, ALL LATER ERROR ARE SET AS: ErrorKind::ER_PARSE_ERROR
-        let statement = match parse(sql) {
-            Ok(statement) => statement,
-            Err(e) => {
-                results
-                    .error(
-                        ErrorKind::ER_PARSE_ERROR,
-                        AsRef::<[u8]>::as_ref(&e.to_string()),
-                    )
-                    .await?;
-                return Ok(());
-            }
-        };
         let session_state = self.session.state.read().clone();
-        let logical_plan = match session_state.make_logical_plan(statement).await {
-            Ok(logical_plan) => logical_plan,
-            Err(e) => {
-                results
-                    .error(
-                        ErrorKind::ER_PARSE_ERROR,
-                        AsRef::<[u8]>::as_ref(&e.to_string()),
-                    )
-                    .await?;
-                return Ok(());
-            }
-        };
-
-        let physical_plan = match session_state.create_physical_plan(&logical_plan).await {
-            Ok(physical_plan) => physical_plan,
-            Err(e) => {
-                results
-                    .error(
-                        ErrorKind::ER_PARSE_ERROR,
-                        AsRef::<[u8]>::as_ref(&e.to_string()),
-                    )
-                    .await?;
-                return Ok(());
-            }
-        };
-
-        let record_batches = match session_state.execute_physical_plan(physical_plan).await {
+        let record_batches = match session_state.run(sql).await {
             Ok(record_batches) => record_batches,
             Err(e) => {
                 results
@@ -125,7 +69,8 @@ impl<W: AsyncWrite + Send + Unpin> AsyncMysqlShim<W> for Backend {
         if record_batches.len() == 0 {
             return results.completed(OkResponse::default()).await;
         } else {
-            if matches!(logical_plan, LogicalPlan::Insert(_)) {
+            // insert, show rows affected
+            if sql.trim_start().to_ascii_lowercase().starts_with("insert") {
                 let response = match parse_response_row(&record_batches) {
                     Ok(response) => response,
                     Err(e) => {
@@ -138,9 +83,9 @@ impl<W: AsyncWrite + Send + Unpin> AsyncMysqlShim<W> for Backend {
                         return Ok(());
                     }
                 };
-
                 return results.completed(response).await;
             } else {
+                // query, send ResultSet
                 let fields = record_batches[0].schema.all_fields();
                 let header: Vec<Column> = fields
                     .iter()

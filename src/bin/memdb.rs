@@ -2,7 +2,7 @@ use std::io;
 use std::io::Write;
 
 use anyhow::Result;
-use yoursql::parser::parse;
+use yoursql::common::types::DataValue;
 use yoursql::session::SessionContext;
 
 /// cargo run --package yoursql --bin memdb
@@ -47,49 +47,31 @@ async fn main() -> Result<()> {
         }
         // SQL statement
         else {
-            let statement = match parse(&command) {
-                Ok(statement) => statement,
-                Err(err) => {
-                    println!("Error parsing SQL: {}", err);
-                    continue;
-                }
-            };
-            let logical_plan = match session.state.read().make_logical_plan(statement).await {
-                Ok(logical_plan) => logical_plan,
-                Err(err) => {
-                    println!("Error making logical plan: {}", err);
-                    continue;
-                }
-            };
-            // println!("logical plan:{:?}", logical_plan);
-            let physical_plan = match session
-                .state
-                .read()
-                .create_physical_plan(&logical_plan)
-                .await
-            {
-                Ok(physical_plan) => physical_plan,
-                Err(err) => {
-                    println!("Error making physical plan: {}", err);
-                    continue;
-                }
-            };
-            let record_batches = match session
-                .state
-                .read()
-                .execute_physical_plan(physical_plan)
-                .await
-            {
+            let record_batches = match session.state.read().run(&command).await {
                 Ok(record_batches) => record_batches,
                 Err(err) => {
-                    println!("Error executing the physical plan: {}", err);
+                    println!("Error executing query {}: {}", command, err);
                     continue;
                 }
             };
             if record_batches.is_empty() {
                 println!("Empty ResultSet");
             } else {
-                session.state.read().print_record_batches(&record_batches);
+                if command
+                    .trim_start()
+                    .to_ascii_lowercase()
+                    .starts_with("insert")
+                {
+                    let row = record_batches[0].rows[0].clone();
+                    let affected_rows = match row[1] {
+                        DataValue::UInt64(num) => num,
+                        _ => None,
+                    }
+                    .unwrap();
+                    println!("rows affected {}", affected_rows);
+                } else {
+                    session.state.read().print_record_batches(&record_batches);
+                }
             }
         }
     }

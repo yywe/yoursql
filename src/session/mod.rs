@@ -17,6 +17,7 @@ use crate::expr::logical_plan::LogicalPlan;
 use crate::logical_planner::{
     object_name_to_table_refernce, LogicalPlanner, ParserOptions, PlannerContext,
 };
+use crate::parser::parse;
 use crate::physical_planner::{DefaultPhysicalPlanner, ExecutionPlan, PhysicalPlanner};
 use crate::storage::Table;
 
@@ -241,6 +242,14 @@ impl SessionState {
             .into_iter()
             .map(|x| object_name_to_table_refernce(x, enable_ident_normalization))
             .collect::<Result<_>>()
+    }
+
+    /// SQL entry
+    pub async fn run(&self, sql: &str) -> Result<Vec<RecordBatch>> {
+        let statement = parse(sql)?;
+        let logical_plan = self.make_logical_plan(statement).await?;
+        let physical_plan = self.create_physical_plan(&logical_plan).await?;
+        self.execute_physical_plan(physical_plan).await
     }
 }
 
