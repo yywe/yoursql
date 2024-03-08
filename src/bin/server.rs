@@ -1,6 +1,6 @@
 use mysql_common::constants::{ColumnFlags, ColumnType::MYSQL_TYPE_STRING};
 use opensrv_mysql::{Column, *};
-use std::{io, sync::Arc};
+use std::io;
 use tokio::{io::AsyncWrite, net::TcpListener};
 use yoursql::{parser::parse, session::SessionContext};
 
@@ -8,12 +8,12 @@ use yoursql::{parser::parse, session::SessionContext};
 /// mysql -h 127.0.0.1
 
 struct Backend {
-    session: Arc<SessionContext>,
+    session: SessionContext,
 }
 impl Default for Backend {
     fn default() -> Self {
         Backend {
-            session: Arc::new(SessionContext::default()),
+            session: SessionContext::default(),
         }
     }
 }
@@ -47,6 +47,8 @@ impl<W: AsyncWrite + Send + Unpin> AsyncMysqlShim<W> for Backend {
         results: QueryResultWriter<'a, W>,
     ) -> io::Result<()> {
         println!("execute sql {:?}", sql);
+        results.start(&[]).await?.finish().await
+        /* 
         let statement = parse(sql).map_err(|err| {
             std::io::Error::new(
                 std::io::ErrorKind::Other,
@@ -110,7 +112,9 @@ impl<W: AsyncWrite + Send + Unpin> AsyncMysqlShim<W> for Backend {
                 }
             }
             return row_writer.finish().await;
+            
         }
+         */
     }
 }
 
