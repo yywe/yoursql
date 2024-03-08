@@ -1,26 +1,20 @@
-use crate::{
-    common::{
-        column::Column,
-        schema::{Field, Schema, SchemaRef},
-        table_reference::TableReference,
-        tree_node::{RewriteRecursion, TreeNode, TreeNodeRewriter, VisitRecursion},
-    },
-    expr::{
-        expr::{BinaryExpr, Expr, Operator},
-        logical_plan::{
-            Aggregate, Filter, Insert, Join, Limit, LogicalPlan, Projection, Sort, SubqueryAlias,
-            TableScan, Values,
-        },
-    },
-};
-use anyhow::{anyhow, Result};
-use std::{collections::HashSet, sync::Arc};
+use std::collections::HashSet;
+use std::sync::Arc;
 
-use super::{
-    expr::{AggregateFunction, AggregateFunctionType},
-    logical_plan::builder::build_join_schema,
-};
+use anyhow::{anyhow, Result};
+
+use super::expr::{AggregateFunction, AggregateFunctionType};
+use super::logical_plan::builder::build_join_schema;
+use crate::common::column::Column;
+use crate::common::schema::{Field, Schema, SchemaRef};
+use crate::common::table_reference::TableReference;
+use crate::common::tree_node::{RewriteRecursion, TreeNode, TreeNodeRewriter, VisitRecursion};
+use crate::expr::expr::{BinaryExpr, Expr, Operator};
 use crate::expr::logical_plan::builder::LogicalPlanBuilder;
+use crate::expr::logical_plan::{
+    Aggregate, Filter, Insert, Join, Limit, LogicalPlan, Projection, Sort, SubqueryAlias,
+    TableScan, Values,
+};
 
 pub fn inspect_expr_pre<F>(expr: &Expr, mut f: F) -> Result<()>
 where

@@ -1,16 +1,16 @@
-use crate::{
-    common::{record_batch::RecordBatch, schema::SchemaRef},
-    expr::expr::Expr,
-    physical_planner::{memory::MemoryExec, ExecutionPlan},
-    session::SessionState,
-    storage::Table,
-};
+use std::any::Any;
+use std::sync::{Arc, Mutex};
+
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
-use std::{
-    any::Any,
-    sync::{Arc, Mutex},
-};
+
+use crate::common::record_batch::RecordBatch;
+use crate::common::schema::SchemaRef;
+use crate::expr::expr::Expr;
+use crate::physical_planner::memory::MemoryExec;
+use crate::physical_planner::ExecutionPlan;
+use crate::session::SessionState;
+use crate::storage::Table;
 
 #[derive(Debug)]
 pub struct MemTable {
@@ -57,7 +57,7 @@ impl Table for MemTable {
         )?))
     }
     async fn insert(&self, batch: RecordBatch) -> Result<usize> {
-        //TODO: the storage engine should be able to detect constraints
+        // TODO: the storage engine should be able to detect constraints
         //(e.g, uniqueness, nullablity), add null or default here or at upper layer?
         if !batch.schema.eq(&self.schema) {
             return Err(anyhow!(

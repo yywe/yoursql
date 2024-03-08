@@ -1,11 +1,12 @@
-use super::{LogicalPlanner, PlannerContext};
-use crate::{
-    common::{schema::SchemaRef, table_reference::OwnedTableReference},
-    expr::logical_plan::{Insert, LogicalPlan, Values},
-};
+use std::sync::Arc;
+
 use anyhow::{anyhow, Result};
 use sqlparser::ast::{Ident, Query};
-use std::sync::Arc;
+
+use super::{LogicalPlanner, PlannerContext};
+use crate::common::schema::SchemaRef;
+use crate::common::table_reference::OwnedTableReference;
+use crate::expr::logical_plan::{Insert, LogicalPlan, Values};
 
 impl<'a, C: PlannerContext> LogicalPlanner<'a, C> {
     pub fn plan_insert(
@@ -15,7 +16,7 @@ impl<'a, C: PlannerContext> LogicalPlanner<'a, C> {
         columns_ident: Vec<Ident>,
         source: Query,
     ) -> Result<LogicalPlan> {
-        //let table_reference = object_name_to_table_refernce(table_name, true)?;
+        // let table_reference = object_name_to_table_refernce(table_name, true)?;
         let input = self.plan_set_expr(*source.body)?;
         if let LogicalPlan::Values(Values {
             schema: _schema,
@@ -42,7 +43,7 @@ impl<'a, C: PlannerContext> LogicalPlanner<'a, C> {
                     .collect::<Result<Vec<_>>>()?;
                 Arc::new(schema.project(&checked_indices)?)
             };
-            //IMPORTANT: fix the schema of values
+            // IMPORTANT: fix the schema of values
             let fixed_plan = LogicalPlan::Values(Values {
                 schema: projected_schema.clone(),
                 values: values,

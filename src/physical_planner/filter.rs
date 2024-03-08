@@ -1,17 +1,14 @@
-use crate::{
-    common::{
-        record_batch::RecordBatch,
-        schema::SchemaRef,
-        types::{DataType, DataValue},
-    },
-    physical_expr::PhysicalExpr,
-    session::SessionState,
-};
-use anyhow::{anyhow, Result};
-use futures::{Stream, StreamExt};
 use std::sync::Arc;
 
+use anyhow::{anyhow, Result};
+use futures::{Stream, StreamExt};
+
 use super::{ExecutionPlan, RecordBatchStream, SendableRecordBatchStream};
+use crate::common::record_batch::RecordBatch;
+use crate::common::schema::SchemaRef;
+use crate::common::types::{DataType, DataValue};
+use crate::physical_expr::PhysicalExpr;
+use crate::session::SessionState;
 
 #[derive(Debug)]
 pub struct FilterExec {

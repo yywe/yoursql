@@ -1,12 +1,14 @@
-use super::{ExecutionPlan, SendableRecordBatchStream};
-use crate::{
-    common::{record_batch::RecordBatch, schema::SchemaRef, types::DataValue},
-    physical_expr::PhysicalExpr,
-    physical_planner::memory::MemoryStream,
-    session::SessionState,
-};
-use anyhow::{anyhow, Result};
 use std::sync::Arc;
+
+use anyhow::{anyhow, Result};
+
+use super::{ExecutionPlan, SendableRecordBatchStream};
+use crate::common::record_batch::RecordBatch;
+use crate::common::schema::SchemaRef;
+use crate::common::types::DataValue;
+use crate::physical_expr::PhysicalExpr;
+use crate::physical_planner::memory::MemoryStream;
+use crate::session::SessionState;
 
 #[derive(Debug)]
 pub struct ValuesExec {
@@ -20,15 +22,13 @@ impl ValuesExec {
             return Err(anyhow!("Value list cannot be empty"));
         }
         let n_col = schema.fields().len();
-        /*
-        cause the logical values are expressions, we need to evaluate it to get values.
-        construct dummy batch, check the literal evaluate function:
-            fn evaluate(&self, batch: &RecordBatch) -> Result<Vec<DataValue>> {
-                let dim = batch.rows.len();
-                Ok(vec![self.value.clone(); dim])
-            }
-        here just need the dim
-        */
+        // cause the logical values are expressions, we need to evaluate it to get values.
+        // construct dummy batch, check the literal evaluate function:
+        // fn evaluate(&self, batch: &RecordBatch) -> Result<Vec<DataValue>> {
+        // let dim = batch.rows.len();
+        // Ok(vec![self.value.clone(); dim])
+        // }
+        // here just need the dim
         let dummy_batch = RecordBatch {
             schema: schema.clone(),
             rows: vec![vec![DataValue::Null; n_col]; 1],

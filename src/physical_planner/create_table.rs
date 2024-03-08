@@ -1,16 +1,15 @@
-use crate::{
-    common::{
-        schema::{Field, EMPTY_SCHEMA_REF},
-        table_reference::TableReference,
-    },
-    physical_planner::{
-        empty::EmptyExec, ExecutionPlan, Schema, SchemaRef, SendableRecordBatchStream,
-    },
-    session::SessionState,
-    storage::memory::MemTable,
-};
+use std::any::Any;
+use std::collections::HashMap;
+use std::sync::Arc;
+
 use anyhow::Result;
-use std::{any::Any, collections::HashMap, sync::Arc};
+
+use crate::common::schema::{Field, EMPTY_SCHEMA_REF};
+use crate::common::table_reference::TableReference;
+use crate::physical_planner::empty::EmptyExec;
+use crate::physical_planner::{ExecutionPlan, Schema, SchemaRef, SendableRecordBatchStream};
+use crate::session::SessionState;
+use crate::storage::memory::MemTable;
 #[derive(Clone, Debug)]
 pub struct CreateTableExec {
     pub dbname: String,

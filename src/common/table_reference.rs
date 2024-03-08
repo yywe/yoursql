@@ -1,6 +1,8 @@
-use super::utils::parse_identifiers_normalized;
-use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
+
+use serde::{Deserialize, Serialize};
+
+use super::utils::parse_identifiers_normalized;
 
 pub struct ResolvedTableReference<'a> {
     pub database: Cow<'a, str>,

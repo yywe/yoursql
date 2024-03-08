@@ -1,6 +1,9 @@
+use std::io;
+use std::io::Write;
+
 use anyhow::Result;
-use std::{io, io::Write};
-use yoursql::{parser::parse, session::SessionContext};
+use yoursql::parser::parse;
+use yoursql::session::SessionContext;
 
 /// cargo run --package yoursql --bin memdb
 
@@ -58,7 +61,7 @@ async fn main() -> Result<()> {
                     continue;
                 }
             };
-            //println!("logical plan:{:?}", logical_plan);
+            // println!("logical plan:{:?}", logical_plan);
             let physical_plan = match session
                 .state
                 .read()

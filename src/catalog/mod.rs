@@ -1,8 +1,10 @@
-use crate::storage::Table;
+use std::sync::Arc;
+
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use dashmap::DashMap;
-use std::sync::Arc;
+
+use crate::storage::Table;
 
 #[async_trait]
 pub trait DB: Send + Sync {

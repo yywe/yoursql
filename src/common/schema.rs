@@ -1,19 +1,25 @@
-use super::{
-    column::Column,
-    table_reference::{OwnedTableReference, TableReference},
-};
-use crate::common::types::DataType;
+use std::collections::{HashMap, HashSet};
+use std::hash::Hash;
+use std::ops::Deref;
+use std::sync::Arc;
+
 use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};
-use std::{
-    collections::{HashMap, HashSet},
-    hash::Hash,
-    ops::Deref,
-    sync::Arc,
-};
+
+use super::column::Column;
+use super::table_reference::{OwnedTableReference, TableReference};
+use crate::common::types::DataType;
 
 lazy_static::lazy_static! {
     pub static ref EMPTY_SCHEMA_REF: SchemaRef = Arc::new(Schema::empty());
+    pub static ref RESP_SCHEMA_REF: SchemaRef = Arc::new(Schema::new(vec![
+        Field::new("header", DataType::UInt8, true, None),
+        Field::new("affected_rows", DataType::UInt64, true, None),
+        Field::new("last_insert_id", DataType::UInt64, true, None),
+        Field::new("warnings", DataType::UInt16, true, None),
+        Field::new("info", DataType::Utf8, true, None),
+        Field::new("session_state_info", DataType::Utf8, true, None),
+    ], HashMap::new()));
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]

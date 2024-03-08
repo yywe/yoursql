@@ -1,30 +1,22 @@
-use crate::{
-    common::{schema::SchemaRef, table_reference::OwnedTableReference},
-    expr::{
-        expr_rewriter::{
-            normalize_col, normalize_col_with_schemas_and_ambiguity_check, normalize_cols,
-            rewrite_sort_cols_by_aggs,
-        },
-        utils::{columnize_expr, expand_qualified_wildcard, expand_wildcard},
-    },
-    storage::Table,
-};
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
+
+use anyhow::{anyhow, Result};
 
 use super::LogicalPlan;
-use crate::{
-    common::{column::Column, schema::Field},
-    expr::{
-        expr_schema::exprlist_to_fields,
-        logical_plan::{
-            Aggregate, EmptyRelation, Expr, Filter, JoinType, Projection, Schema, TableScan,
-        },
-    },
+use crate::common::column::Column;
+use crate::common::schema::{Field, SchemaRef};
+use crate::common::table_reference::OwnedTableReference;
+use crate::expr::expr_rewriter::{
+    normalize_col, normalize_col_with_schemas_and_ambiguity_check, normalize_cols,
+    rewrite_sort_cols_by_aggs,
 };
-use anyhow::{anyhow, Result};
-use std::{
-    collections::{HashMap, HashSet},
-    sync::Arc,
+use crate::expr::expr_schema::exprlist_to_fields;
+use crate::expr::logical_plan::{
+    Aggregate, EmptyRelation, Expr, Filter, JoinType, Projection, Schema, TableScan,
 };
+use crate::expr::utils::{columnize_expr, expand_qualified_wildcard, expand_wildcard};
+use crate::storage::Table;
 
 pub struct LogicalPlanBuilder {
     plan: LogicalPlan,
@@ -142,15 +134,16 @@ impl LogicalPlanBuilder {
         )?)))
     }
 
-    /// apply sort plan given the input, first check and insert missing columns, then do a projection
-    /// if missing columns are added. when adding missing, will recursively add for all downstream plans
+    /// apply sort plan given the input, first check and insert missing columns, then do a
+    /// projection if missing columns are added. when adding missing, will recursively add for
+    /// all downstream plans
     ///
-    /// another thing, if the sort op has aggregation, it needs to use the aggregation output. at the time
-    /// of sort, the aggregation should have already by done. so just needs a rewrite, i.e. rewrite
-    /// the aggregation expression using the output of the aggregation node name
+    /// another thing, if the sort op has aggregation, it needs to use the aggregation output. at
+    /// the time of sort, the aggregation should have already by done. so just needs a rewrite,
+    /// i.e. rewrite the aggregation expression using the output of the aggregation node name
 
-    /// in the case of toydb, this is done by insert separate placeholder columns 1st for aggregation
-    /// result, then all the other operation is based on the result column
+    /// in the case of toydb, this is done by insert separate placeholder columns 1st for
+    /// aggregation result, then all the other operation is based on the result column
     /// the aggregation is done at logical plan level, not expression level.
     ///
     ///
@@ -233,12 +226,13 @@ impl LogicalPlanBuilder {
                 // deduplication
                 missing_exprs.retain(|e| !exprs.contains(e));
                 exprs.extend(missing_exprs);
-                Ok(project((*input).clone(), exprs)?) // return a projection which has all missing columns
+                Ok(project((*input).clone(), exprs)?) // return a projection which has all missing
+                                                      // columns
             }
 
             _ => {
-                // recursion case, either not projection, or the projection does not have all missing columns
-                // continue look in bottom layers recursively
+                // recursion case, either not projection, or the projection does not have all
+                // missing columns continue look in bottom layers recursively
 
                 // first process all child plan nodes (i.e, add missing columns for them)
                 let new_inputs = curr_plan
@@ -289,7 +283,8 @@ impl LogicalPlanBuilder {
             None
         };
 
-        // in where A join B on x = y, it is unkown x is from A or B, we need to resolve the qualifier first
+        // in where A join B on x = y, it is unkown x is from A or B, we need to resolve the
+        // qualifier first
         let (left_keys, right_keys): (Vec<Result<Column>>, Vec<Result<Column>>) = join_keys
             .0
             .into_iter()
@@ -536,7 +531,8 @@ pub fn wrap_projection_for_join(
     let plan = if need_project {
         // first convert the schema fields to Expr, (cause later we need Expr to project)
         let mut projection = expand_wildcard(input_schema.as_ref(), &input)?;
-        // then get join item  that is not a Column, i.e, if try_into_col() is error then get its expr
+        // then get join item  that is not a Column, i.e, if try_into_col() is error then get its
+        // expr
         let join_key_items = cloned_join_keys
             .iter()
             .flat_map(|expr| expr.try_into_col().is_err().then_some(expr))

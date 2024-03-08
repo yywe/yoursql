@@ -1,25 +1,19 @@
 use std::str::FromStr;
 
-use crate::{
-    common::{
-        column::Column,
-        schema::Schema,
-        table_reference::TableReference,
-        types::{DataType, DataValue},
-    },
-    expr::{
-        expr::{
-            AggregateFunction, AggregateFunctionType, Between, BinaryExpr, Expr, Like, Operator,
-            Sort,
-        },
-        expr_schema::ExprToSchema,
-        literal::lit,
-        utils::find_columns_referred_by_expr,
-    },
-    logical_planner::{normalize_ident, LogicalPlanner, PlannerContext},
-};
 use anyhow::{anyhow, Context, Result};
 use sqlparser::ast::{Expr as SQLExpr, OrderByExpr};
+
+use crate::common::column::Column;
+use crate::common::schema::Schema;
+use crate::common::table_reference::TableReference;
+use crate::common::types::{DataType, DataValue};
+use crate::expr::expr::{
+    AggregateFunction, AggregateFunctionType, Between, BinaryExpr, Expr, Like, Operator, Sort,
+};
+use crate::expr::expr_schema::ExprToSchema;
+use crate::expr::literal::lit;
+use crate::expr::utils::find_columns_referred_by_expr;
+use crate::logical_planner::{normalize_ident, LogicalPlanner, PlannerContext};
 
 /// we need to convert the AST expressions to Expressions in logical plan
 
@@ -31,7 +25,8 @@ impl<'a, C: PlannerContext> LogicalPlanner<'a, C> {
         Ok(expr)
     }
 
-    ///the datafusion implementation used a stack to avoid stack overflow, here simplified, directly call internal func
+    /// the datafusion implementation used a stack to avoid stack overflow, here simplified,
+    /// directly call internal func
     pub fn sql_expr_to_logical_expr(&self, ast_expr: SQLExpr, schema: &Schema) -> Result<Expr> {
         Ok(self.sql_expr_to_logical_expr_internal(ast_expr, schema)?)
     }
@@ -251,8 +246,8 @@ impl<'a, C: PlannerContext> LogicalPlanner<'a, C> {
                 } else {
                     normalize_ident(function.name.0[0].clone())
                 };
-                // only support aggregate function, user defined function or built-in function not supported
-                // can be added here to enhance the feature
+                // only support aggregate function, user defined function or built-in function not
+                // supported can be added here to enhance the feature
                 if let Ok(fun) = AggregateFunctionType::from_str(&name) {
                     let distinct = function.distinct;
                     let order_by = self.order_by_to_sort_expr(&function.order_by, schema)?;

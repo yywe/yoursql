@@ -1,16 +1,10 @@
-use crate::{
-    common::{
-        schema::{ColumnMeta, Field, Schema},
-        types::DataType,
-    },
-    expr::{
-        expr::{AggregateFunction, AggregateFunctionType, BinaryExpr, Expr, Sort},
-        logical_plan::{Aggregate, LogicalPlan},
-    },
-};
 use anyhow::{anyhow, Result};
 
 use super::type_coercion::get_result_type;
+use crate::common::schema::{ColumnMeta, Field, Schema};
+use crate::common::types::DataType;
+use crate::expr::expr::{AggregateFunction, AggregateFunctionType, BinaryExpr, Expr, Sort};
+use crate::expr::logical_plan::{Aggregate, LogicalPlan};
 use crate::expr::utils::agg_cols;
 
 /// we need to be able to compose a schema based on expressions

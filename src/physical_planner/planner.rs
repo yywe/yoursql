@@ -1,34 +1,36 @@
-use super::{
-    aggregate::PhysicalGroupBy, limit::LimitExec, nested_loop_join::NestedLoopJoinExec,
-    projection::ProjectionExec, values::ValuesExec, ExecutionPlan, PhysicalPlanner,
-};
-use crate::{
-    common::schema::Schema,
-    expr::{
-        expr,
-        expr::{AggregateFunction, Between, BinaryExpr, Expr, Like},
-        expr_rewriter::{unalias, unnormlize_cols},
-        logical_plan::{
-            builder::{build_join_schema, wrap_projection_for_join},
-            Aggregate, CreateTable, CrossJoin, Insert, Join, Limit, LogicalPlan, Projection, Sort,
-            TableScan, Values,
-        },
-    },
-    physical_expr::{
-        aggregate::{create_aggregate_expr_impl, AggregateExpr},
-        planner::create_physical_expr,
-        sort::PhysicalSortExpr,
-        PhysicalExpr,
-    },
-    physical_planner::{
-        aggregate::AggregateExec, create_table::CreateTableExec, cross_join::CrossJoinExec,
-        filter::FilterExec, insert::InsertExec, sort::SortExec, DefaultPhysicalPlanner,
-    },
-    session::SessionState,
-};
-use anyhow::{anyhow, Context, Result};
-use futures::{future::BoxFuture, FutureExt};
 use std::sync::Arc;
+
+use anyhow::{anyhow, Context, Result};
+use futures::future::BoxFuture;
+use futures::FutureExt;
+
+use super::aggregate::PhysicalGroupBy;
+use super::limit::LimitExec;
+use super::nested_loop_join::NestedLoopJoinExec;
+use super::projection::ProjectionExec;
+use super::values::ValuesExec;
+use super::{ExecutionPlan, PhysicalPlanner};
+use crate::common::schema::Schema;
+use crate::expr::expr;
+use crate::expr::expr::{AggregateFunction, Between, BinaryExpr, Expr, Like};
+use crate::expr::expr_rewriter::{unalias, unnormlize_cols};
+use crate::expr::logical_plan::builder::{build_join_schema, wrap_projection_for_join};
+use crate::expr::logical_plan::{
+    Aggregate, CreateTable, CrossJoin, Insert, Join, Limit, LogicalPlan, Projection, Sort,
+    TableScan, Values,
+};
+use crate::physical_expr::aggregate::{create_aggregate_expr_impl, AggregateExpr};
+use crate::physical_expr::planner::create_physical_expr;
+use crate::physical_expr::sort::PhysicalSortExpr;
+use crate::physical_expr::PhysicalExpr;
+use crate::physical_planner::aggregate::AggregateExec;
+use crate::physical_planner::create_table::CreateTableExec;
+use crate::physical_planner::cross_join::CrossJoinExec;
+use crate::physical_planner::filter::FilterExec;
+use crate::physical_planner::insert::InsertExec;
+use crate::physical_planner::sort::SortExec;
+use crate::physical_planner::DefaultPhysicalPlanner;
+use crate::session::SessionState;
 
 impl DefaultPhysicalPlanner {
     /// this ia a async func without async fn. cause it returns box future
@@ -65,7 +67,8 @@ impl DefaultPhysicalPlanner {
                                     .context(format!("failed to find column {:?}", col));
                                 match index_of_column {
                                     Ok(idx) => {
-                                        // here index physical schema field using logical field index
+                                        // here index physical schema field using logical field
+                                        // index
                                         Ok(input_exec.schema().field(idx).name().to_string())
                                     }
                                     Err(_) => physical_name(e),
@@ -120,15 +123,15 @@ impl DefaultPhysicalPlanner {
                     schema: join_logischema,
                     ..
                 }) => {
-                    let _null_equals_null = *null_equals_null; //not used yet, used for hash join and sort merge
+                    let _null_equals_null = *null_equals_null; // not used yet, used for hash join and sort merge
 
                     // check if there is expr equal join like where 3*columnA=2*columnB
                     // i.e, any pair does not satisfy Expr::Column
                     let has_expr_equal_join = keys.iter().any(|(l, r)| {
                         !(matches!(l, Expr::Column(_)) && matches!(r, Expr::Column(_)))
                     });
-                    // if has expr equal join, we do a projection, like project 3 * column A to "3*columnA"
-                    // as a new column
+                    // if has expr equal join, we do a projection, like project 3 * column A to
+                    // "3*columnA" as a new column
                     if has_expr_equal_join {
                         // get all left and right join keys in sep vector
                         let left_keys = keys.iter().map(|(l, _r)| l).cloned().collect::<Vec<_>>();
@@ -153,9 +156,10 @@ impl DefaultPhysicalPlanner {
                             Arc::new(right),
                             column_on,
                         )?);
-                        // if we have projection, after the join with projection, we need to remove it
+                        // if we have projection, after the join with projection, we need to remove
+                        // it
                         let join_plan = if added_project {
-                            //extract original columns from original join_schema
+                            // extract original columns from original join_schema
                             let final_join_result = join_logischema
                                 .fields()
                                 .iter()
@@ -172,7 +176,7 @@ impl DefaultPhysicalPlanner {
                         };
                         return self.create_initial_plan(&join_plan, session_state).await;
                     }
-                    //all equivilent join are columns now
+                    // all equivilent join are columns now
                     let physical_left = self.create_initial_plan(&left, session_state).await?;
                     let physical_right = self.create_initial_plan(&right, session_state).await?;
 
@@ -284,9 +288,10 @@ impl DefaultPhysicalPlanner {
                         .map(|row| {
                             row.iter()
                                 .map(|expr| {
-                                    //TODO: confirm: for values, it does not have child input physical schema
-                                    //let input_logischema = input.output_schema();
-                                    //NOTE: the values schema is empty schema??
+                                    // TODO: confirm: for values, it does not have child input
+                                    // physical schema
+                                    // let input_logischema = input.output_schema();
+                                    // NOTE: the values schema is empty schema??
 
                                     self.create_physical_expr(expr, &schema, &schema, session_state)
                                 })
@@ -343,7 +348,7 @@ fn physical_name(e: &Expr) -> Result<String> {
     create_physical_name(e, true)
 }
 
-///given the logical expression, create a name for its physical expression
+/// given the logical expression, create a name for its physical expression
 fn create_physical_name(e: &Expr, is_first_expr: bool) -> Result<String> {
     match e {
         Expr::Column(c) => {
@@ -497,7 +502,7 @@ fn create_aggregate_expr(
             order_by,
         }) => {
             if *distinct != false || filter.is_some() || order_by.is_some() {
-                //todo
+                // todo
                 return Err(anyhow!(format!(
                     "unsupported input for aggregate function:{fun:?}"
                 )));

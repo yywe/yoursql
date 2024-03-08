@@ -1,26 +1,26 @@
-use super::{ExecutionPlan, RecordBatchStream, SendableRecordBatchStream};
-use crate::{
-    common::{
-        record_batch::RecordBatch,
-        schema::{Field, Schema, SchemaRef},
-        types::DataValue,
-    },
-    physical_expr::{accumulator::Accumulator, aggregate::AggregateExpr, PhysicalExpr},
-    physical_planner::{utils::transpose_matrix, ExecutionState},
-    session::SessionState,
-};
-use anyhow::Result;
 use core::cmp::min;
-use futures::{ready, stream::BoxStream, Stream, StreamExt};
-use hashbrown::raw::RawTable;
 use std::collections::hash_map::DefaultHasher;
-use std::{
-    collections::HashMap,
-    fmt::Debug,
-    hash::{Hash, Hasher},
-    sync::Arc,
-    task::Poll,
-};
+use std::collections::HashMap;
+use std::fmt::Debug;
+use std::hash::{Hash, Hasher};
+use std::sync::Arc;
+use std::task::Poll;
+
+use anyhow::Result;
+use futures::stream::BoxStream;
+use futures::{ready, Stream, StreamExt};
+use hashbrown::raw::RawTable;
+
+use super::{ExecutionPlan, RecordBatchStream, SendableRecordBatchStream};
+use crate::common::record_batch::RecordBatch;
+use crate::common::schema::{Field, Schema, SchemaRef};
+use crate::common::types::DataValue;
+use crate::physical_expr::accumulator::Accumulator;
+use crate::physical_expr::aggregate::AggregateExpr;
+use crate::physical_expr::PhysicalExpr;
+use crate::physical_planner::utils::transpose_matrix;
+use crate::physical_planner::ExecutionState;
+use crate::session::SessionState;
 
 #[derive(Clone, Debug, Default)]
 pub struct PhysicalGroupBy {
@@ -63,8 +63,8 @@ pub struct AggregateStream {
     schema: SchemaRef,
 }
 
-//each accumulator has one vec of expressions since the accumulator
-//input may has multiple expressions
+// each accumulator has one vec of expressions since the accumulator
+// input may has multiple expressions
 struct AggregateStreamInner {
     schema: SchemaRef,
     input: SendableRecordBatchStream,
@@ -90,7 +90,7 @@ impl RecordBatchStream for AggregateStream {
     }
 }
 
-///aggregate the batch
+/// aggregate the batch
 fn aggregate_batch(
     batch: RecordBatch,
     accumulators: &mut [Box<dyn Accumulator>],
@@ -167,11 +167,11 @@ impl AggregateStream {
                         agg_result
                     }
                 };
-                //set finished to be true
-                //in the case of error, previous this.finished= true will not be executed
+                // set finished to be true
+                // in the case of error, previous this.finished= true will not be executed
                 this.finished = true;
                 // this will return from the loop regardless of success or failure
-                //however, if success, the result has the aggregate result
+                // however, if success, the result has the aggregate result
                 // if failure, this break the loop
                 return Some((result, this));
             }
@@ -188,7 +188,7 @@ impl AggregateStream {
 pub struct GroupState {
     pub group_by_values: Vec<DataValue>,
     pub accumulator_set: Vec<Box<dyn Accumulator>>,
-    pub indices: Vec<u32>, //temp for each batch
+    pub indices: Vec<u32>, // temp for each batch
 }
 
 // the state of all the groups
@@ -214,7 +214,7 @@ impl GroupedHashAggregateStream {
     pub fn new(agg: &AggregateExec, state: &SessionState) -> Result<Self> {
         let agg_schema = Arc::clone(&agg.schema);
         let agg_group_by = agg.group_by.clone();
-        let batch_size = 2; //todo: let it be configurable
+        let batch_size = 2; // todo: let it be configurable
         let input = agg.input.execute(state)?;
         let all_aggregate_expresions = aggregate_expressions(&agg.aggr_expr)?;
         let aggr_state = AggregationState {
@@ -245,7 +245,7 @@ impl GroupedHashAggregateStream {
         let mut groups_with_rows = vec![];
 
         for (row, hash) in batch_hashes.into_iter().enumerate() {
-            //although hash designed to avoid conflict, but still it can, here to ensure equality
+            // although hash designed to avoid conflict, but still it can, here to ensure equality
             let entry = map.get_mut(hash, |(_hash, group_idx)| {
                 let group_state = &group_states[*group_idx];
                 let row_values = group_values[row];
@@ -253,23 +253,25 @@ impl GroupedHashAggregateStream {
             });
 
             match entry {
-                //the group key already exists
+                // the group key already exists
                 Some((_hash, group_idx)) => {
                     let group_state = &mut group_states[*group_idx];
                     // why we need this?
-                    // groups_with_rows stores the group index that needs an update due to comin data
-                    // in the case of a new group_state it will not be empty since initied with :indices: vec![row as u32]
+                    // groups_with_rows stores the group index that needs an update due to comin
+                    // data in the case of a new group_state it will not be
+                    // empty since initied with :indices: vec![row as u32]
                     // however, in the next batch, the group_state.indices will be cleared
-                    // so whenever we found it is empty, means this is the first time we hit an existing group value
-                    // otherwise not empty means, this group has already been added
-                    // we add the group index for the first time using if empty
-                    // actually, we may consider use a set to do this.
+                    // so whenever we found it is empty, means this is the first time we hit an
+                    // existing group value otherwise not empty means, this
+                    // group has already been added we add the group index for
+                    // the first time using if empty actually, we may consider
+                    // use a set to do this.
                     if group_state.indices.is_empty() {
                         groups_with_rows.push(*group_idx);
                     };
                     group_state.indices.push(row as u32);
                 }
-                //not existing key, a new group come in, add it
+                // not existing key, a new group come in, add it
                 None => {
                     let accumulator_set = create_accumulators(&self.aggregate_expr)?;
                     let group_state = GroupState {
@@ -311,7 +313,8 @@ impl GroupedHashAggregateStream {
             let group_state = &mut self.aggr_state.group_states[*group_idx];
             // collect the indices in the batch that have the hash = group state hash
             let indices_in_batch = &group_state.indices;
-            // get the corresonpding aggregate input values for the given group, note it is in 3rd DIM
+            // get the corresonpding aggregate input values for the given group, note it is in 3rd
+            // DIM
             let state_agg_input_values: Vec<Vec<Vec<DataValue>>> = accu_exprs_values
                 .iter()
                 .map(|agg_vec| {
@@ -333,7 +336,7 @@ impl GroupedHashAggregateStream {
                         .collect::<Vec<_>>()
                 })
                 .collect();
-            //finally, now we are ready to update the accumulators
+            // finally, now we are ready to update the accumulators
             group_state
                 .accumulator_set
                 .iter_mut()
@@ -346,7 +349,7 @@ impl GroupedHashAggregateStream {
                     let sliced_values = sliced_values.as_slice();
                     accumulator.update_batch(sliced_values)
                 })?;
-            //last clear the indices;
+            // last clear the indices;
             group_state.indices.clear();
         }
         Ok(())
@@ -401,7 +404,7 @@ impl GroupedHashAggregateStream {
     }
 }
 
-///evaluate the exprs for accumulator, 3D array here.
+/// evaluate the exprs for accumulator, 3D array here.
 /// 1st DIM is for each aggregator
 /// 2nd DIM since each agregator, may have multiple physical expressions
 /// 3rd DIM each single physical expression has a vec of values from batch
@@ -478,7 +481,7 @@ impl From<StreamType> for SendableRecordBatchStream {
     }
 }
 
-///based on group by expression and aggregate expression create the result schema
+/// based on group by expression and aggregate expression create the result schema
 fn create_schema(
     input_schema: &Schema,
     group_expr: &[(Arc<dyn PhysicalExpr>, String)],
@@ -528,7 +531,8 @@ impl AggregateExec {
     }
 }
 
-/// get the physical expressions (2D array) for aggregate expression (1D) since each Agg Expr may has multiple physical exprs
+/// get the physical expressions (2D array) for aggregate expression (1D) since each Agg Expr may
+/// has multiple physical exprs
 fn aggregate_expressions(
     agg_expr: &[Arc<dyn AggregateExpr>],
 ) -> Result<Vec<Vec<Arc<dyn PhysicalExpr>>>> {

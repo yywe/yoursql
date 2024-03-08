@@ -1,6 +1,9 @@
 // here re-export the AST types
-pub use sqlparser::{ast::*, parser::ParserError};
-use sqlparser::{dialect::GenericDialect, parser::Parser, tokenizer::Tokenizer};
+pub use sqlparser::ast::*;
+use sqlparser::dialect::GenericDialect;
+use sqlparser::parser::Parser;
+pub use sqlparser::parser::ParserError;
+use sqlparser::tokenizer::Tokenizer;
 
 pub fn parse(sql: &str) -> Result<Statement, ParserError> {
     let dialect = GenericDialect {};
@@ -19,7 +22,7 @@ mod test {
         WHERE a > b AND b < 100 \
         ORDER BY a DESC, b";
         let ans = parse(sql);
-        //println!("the result of parsing is: {:#?}", ans);
+        // println!("the result of parsing is: {:#?}", ans);
         assert_eq!(ans.is_ok(), true);
     }
 }

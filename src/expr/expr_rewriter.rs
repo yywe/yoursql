@@ -1,18 +1,15 @@
-use super::{
-    expr::{AggregateFunction, Between, BinaryExpr, Like, Sort},
-    expr_schema::ExprToSchema,
-    logical_plan::builder::LogicalPlanBuilder,
-};
-use crate::{
-    common::{
-        column::Column,
-        schema::Schema,
-        tree_node::{Transformed, TreeNode},
-    },
-    expr::{expr::Expr, logical_plan::LogicalPlan},
-};
-use anyhow::Result;
 use std::collections::{HashMap, HashSet};
+
+use anyhow::Result;
+
+use super::expr::{AggregateFunction, Between, BinaryExpr, Like, Sort};
+use super::expr_schema::ExprToSchema;
+use super::logical_plan::builder::LogicalPlanBuilder;
+use crate::common::column::Column;
+use crate::common::schema::Schema;
+use crate::common::tree_node::{Transformed, TreeNode};
+use crate::expr::expr::Expr;
+use crate::expr::logical_plan::LogicalPlan;
 
 pub fn normalize_col(expr: Expr, plan: &LogicalPlan) -> Result<Expr> {
     expr.transform(&|expr| {
@@ -37,8 +34,8 @@ pub fn normalize_cols(
         .collect()
 }
 
-/// rewrite the sort expression that has aggregation to use existing aggregation output column if any
-/// e.g, select a, max(b) from t group by a order by  max(b)
+/// rewrite the sort expression that has aggregation to use existing aggregation output column if
+/// any e.g, select a, max(b) from t group by a order by  max(b)
 /// will rewrite to: select a, max(b) from t group by a order by  col(max(b))
 /// however, if the order by max(b) does not exist in the projection list
 /// like select a from t group by a order by max(b), the rewrite will not be able to rewrite
@@ -103,7 +100,8 @@ fn rewrite_in_terms_of_projection(
         let normalized_expr = if let Ok(e) = normalize_col(expr.clone(), input) {
             e
         } else {
-            return Ok(Transformed::No(expr)); // actually will not reach here since normalize_col always return Ok
+            return Ok(Transformed::No(expr)); // actually will not reach here since normalize_col
+                                              // always return Ok
         };
         let name = normalized_expr.display_name()?;
         let search_col = Expr::Column(Column {
@@ -316,16 +314,14 @@ pub fn unalias(expr: Expr) -> Expr {
 
 #[cfg(test)]
 mod test {
+    use std::collections::HashMap;
+    use std::sync::Arc;
+
     use super::*;
-    use crate::{
-        common::{
-            schema::{Field, Schema},
-            types::DataType,
-        },
-        expr::utils::{col, min},
-        storage::empty::EmptyTable,
-    };
-    use std::{collections::HashMap, sync::Arc};
+    use crate::common::schema::{Field, Schema};
+    use crate::common::types::DataType;
+    use crate::expr::utils::{col, min};
+    use crate::storage::empty::EmptyTable;
 
     fn make_input() -> LogicalPlanBuilder {
         let schema = Arc::new(Schema::new(
@@ -354,10 +350,10 @@ mod test {
             .unwrap()
             .build()
             .unwrap();
-        //println!("the initial plan: \n{:?}", agg);
+        // println!("the initial plan: \n{:?}", agg);
         let init_sort_expr = sort(min(col("c2")));
         let ans_sort_expr = rewrite_sort_cols_by_aggs(vec![init_sort_expr], &agg).unwrap();
-        //println!("the result expr: \n{:?}", ans_sort_expr[0]);
+        // println!("the result expr: \n{:?}", ans_sort_expr[0]);
         match ans_sort_expr[0].clone() {
             Expr::Sort(Sort { expr, .. }) => {
                 assert_eq!("MIN(t.c2)".to_owned(), expr.display_name().unwrap());
