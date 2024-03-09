@@ -1,0 +1,17 @@
+statement ok
+create table t1(id int, name varchar(10))
+
+statement ok
+insert into t1 values (1, 'name1'), (2, 'name2')
+
+statement ok
+create table t2(id int, addr varchar(10))
+
+statement ok
+insert into t2 values (1, 'addr1'), (2, 'addr2')
+
+query IIT rowsort
+select t1.id, t1.name, addr from t1 inner join t2 on t1.id=t2.id
+----
+1 name1 addr1
+2 name2 addr2
