@@ -35,8 +35,9 @@ impl ExecutionPlan for CreateTableExec {
         Arc::clone(&EMPTY_SCHEMA_REF)
     }
     fn execute(&self, session_state: &SessionState) -> Result<SendableRecordBatchStream> {
-        //note have to add table qualifier. but it is okay. cause logical plan will inject qualifer when do scan
-        //and physical plan (and expression) does not need qualifer as it using column index
+        // note have to add table qualifier. but it is okay. cause logical plan will inject qualifer
+        // when do scan and physical plan (and expression) does not need qualifer as it
+        // using column index
         let schema = Arc::new(Schema::new(self.fields.clone(), HashMap::new()));
         let memtable = Arc::new(MemTable::try_new(schema, vec![])?);
         let table_ref = TableReference::Full {

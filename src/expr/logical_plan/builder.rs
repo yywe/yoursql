@@ -457,36 +457,39 @@ pub fn project(
     )?))
 }
 
-///build the logical join schema, it will call Schema::new_with_metadata to ensure fields name unique 
-/// in logical join schema, we cannot have duplicate or ambigous columns, otherwise in projection given 
-/// a name, you do not know which column to pick
+/// build the logical join schema, it will call Schema::new_with_metadata to ensure fields name
+/// unique in logical join schema, we cannot have duplicate or ambigous columns, otherwise in
+/// projection given a name, you do not know which column to pick
 pub fn build_join_schema(left: &Schema, right: &Schema, join_type: &JoinType) -> Result<Schema> {
-    let fields = build_join_fields(left, right, join_type); 
+    let fields = build_join_fields(left, right, join_type);
     let mut metadata = left.metadata().clone();
     metadata.extend(right.metadata().clone());
     Schema::new_with_metadata(fields, metadata)
 }
 
-/*build the physical join schema, the difference is that for physical schema, it is okay 
-for the fields to have duplicate name, the reason is that in physical expression and physical
- plan, the column is identified using index. so it is okay to have two column with the same names
- see create physical expr
-         Expr::Column(c) => {
-let idx = input_logischema
-.index_of_column_by_name(c.relation.as_ref(), &c.name)?
-.context(format!(
-    "failed to find column in create physical expr {:?}",
-    c
-))?;
-Ok(Arc::new(Column::new(&c.name, idx)))
-}
-*/
+// build the physical join schema, the difference is that for physical schema, it is okay
+// for the fields to have duplicate name, the reason is that in physical expression and physical
+// plan, the column is identified using index. so it is okay to have two column with the same names
+// see create physical expr
+// Expr::Column(c) => {
+// let idx = input_logischema
+// .index_of_column_by_name(c.relation.as_ref(), &c.name)?
+// .context(format!(
+// "failed to find column in create physical expr {:?}",
+// c
+// ))?;
+// Ok(Arc::new(Column::new(&c.name, idx)))
+// }
 
-pub fn build_physical_join_schema(left: &Schema, right: &Schema, join_type: &JoinType) -> Result<Schema> {
-    let fields = build_join_fields(left, right, join_type); 
+pub fn build_physical_join_schema(
+    left: &Schema,
+    right: &Schema,
+    join_type: &JoinType,
+) -> Result<Schema> {
+    let fields = build_join_fields(left, right, join_type);
     let mut metadata = left.metadata().clone();
     metadata.extend(right.metadata().clone());
-    Ok(Schema{
+    Ok(Schema {
         fields: fields.into(),
         metadata: metadata,
     })
@@ -535,7 +538,6 @@ pub fn build_join_fields(left: &Schema, right: &Schema, join_type: &JoinType) ->
     };
     fields
 }
-
 
 pub fn validate_unique_names<'a>(
     node_name: &str,

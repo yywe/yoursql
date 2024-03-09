@@ -35,7 +35,7 @@ use crate::session::SessionState;
 impl DefaultPhysicalPlanner {
     /// this ia a async func without async fn. cause it returns box future
     /// Note: Logical Schema is the schema in logical Plan, in datafusion, it is DFSchema
-    /// Logical Schema Field include the Optional Table Reference 
+    /// Logical Schema Field include the Optional Table Reference
     /// Physical Schema is the schema (output) of physical Plan, it is Schema
     /// Physical Schema do not have the Table Reference, always None
     pub fn create_initial_plan<'a>(
@@ -183,11 +183,9 @@ impl DefaultPhysicalPlanner {
                     let physical_right = self.create_initial_plan(&right, session_state).await?;
 
                     let join_filter = match filter {
-                        Some(expr) => Some(self.create_physical_expr(
-                            expr,
-                            join_logischema,
-                            session_state,
-                        )?),
+                        Some(expr) => {
+                            Some(self.create_physical_expr(expr, join_logischema, session_state)?)
+                        }
                         _ => None,
                     };
                     Ok(Arc::new(NestedLoopJoinExec::try_new(
@@ -241,12 +239,7 @@ impl DefaultPhysicalPlanner {
                     let input_logischema = input.output_schema();
                     let sort_expr = expr
                         .iter()
-                        .map(|e| {
-                            create_physical_sort_expr(
-                                e,
-                                input_logischema.as_ref(),
-                            )
-                        })
+                        .map(|e| create_physical_sort_expr(e, input_logischema.as_ref()))
                         .collect::<Result<Vec<_>>>()?;
                     let new_sort = SortExec::new(sort_expr, physical_input, *fetch);
                     Ok(Arc::new(new_sort))
@@ -513,10 +506,7 @@ fn create_aggregate_expr(
     }
 }
 
-pub fn create_physical_sort_expr(
-    e: &Expr,
-    input_logischema: &Schema,
-) -> Result<PhysicalSortExpr> {
+pub fn create_physical_sort_expr(e: &Expr, input_logischema: &Schema) -> Result<PhysicalSortExpr> {
     if let Expr::Sort(expr::Sort {
         expr,
         asc,

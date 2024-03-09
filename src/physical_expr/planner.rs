@@ -12,10 +12,7 @@ use crate::physical_expr::physical_expr::{
     BinaryExpr, Column, IsNotNullExpr, IsNullExpr, LikeExpr, Literal, NotExpr,
 };
 
-pub fn create_physical_expr(
-    e: &Expr,
-    input_logischema: &Schema,
-) -> Result<Arc<dyn PhysicalExpr>> {
+pub fn create_physical_expr(e: &Expr, input_logischema: &Schema) -> Result<Arc<dyn PhysicalExpr>> {
     match e {
         Expr::Alias(expr, ..) => Ok(create_physical_expr(expr, input_logischema)?),
         Expr::Column(c) => {

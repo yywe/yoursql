@@ -1,8 +1,9 @@
-use sqllogictest::{DefaultColumnType, DBOutput};
-use crate::session::SessionContext;
+use sqllogictest::{DBOutput, DefaultColumnType};
 use tokio::runtime::Runtime;
 
-/// cargo test --package yoursql --lib -- test::test::sqllogicatest --exact --nocapture 
+use crate::session::SessionContext;
+
+/// cargo test --package yoursql --lib -- test::test::sqllogicatest --exact --nocapture
 
 struct Database {
     session: SessionContext,
@@ -21,9 +22,12 @@ impl sqllogictest::DB for Database {
         let rt = Runtime::new().unwrap();
         let session_state = self.session.state.read().clone();
         let batches = match rt.block_on(session_state.run(sql)) {
-            Ok(batches)=>batches,
-            Err(e)=>{
-                return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("execution error {}:{}", sql, e)));
+            Ok(batches) => batches,
+            Err(e) => {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("execution error {}:{}", sql, e),
+                ));
             }
         };
         let lowered_sql = sql.trim_start().to_ascii_lowercase();
@@ -38,7 +42,7 @@ impl sqllogictest::DB for Database {
                     types.push(DefaultColumnType::Any)
                 }
             }
-            for row in batch.rows{
+            for row in batch.rows {
                 let mut logi_row = vec![];
                 for value in row {
                     logi_row.push(format!("{value}"))
@@ -46,17 +50,20 @@ impl sqllogictest::DB for Database {
                 rows.push(logi_row);
             }
         }
-        Ok(DBOutput::Rows{types: types, rows: rows})
+        Ok(DBOutput::Rows {
+            types: types,
+            rows: rows,
+        })
     }
 }
 
 #[cfg(test)]
 mod test {
+    use std::{env, fs};
+
     use super::*;
-    use std::env;
-    use std::fs;
     #[test]
-    fn sqllogicatest(){
+    fn sqllogicatest() {
         let tests_dir = env::current_dir().unwrap().join("tests");
         let mut tscripts = Vec::new();
         if let Ok(entries) = fs::read_dir(&tests_dir) {
@@ -68,7 +75,7 @@ mod test {
                     }
                 }
             }
-        }else{
+        } else {
             eprintln!("Failed to read directory: {:?}", tests_dir);
         }
         for ts in tscripts {
@@ -77,6 +84,5 @@ mod test {
             println!("=====Run Test {} ========", ts.to_str().unwrap());
             tester.run_file(ts).unwrap();
         }
-        
     }
 }
