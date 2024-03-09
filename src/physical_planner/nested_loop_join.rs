@@ -10,7 +10,7 @@ use super::{ExecutionPlan, RecordBatchStream, SendableRecordBatchStream};
 use crate::common::record_batch::RecordBatch;
 use crate::common::schema::Schema;
 use crate::common::types::DataValue;
-use crate::expr::logical_plan::builder::build_join_schema;
+use crate::expr::logical_plan::builder::build_physical_join_schema;
 use crate::expr::logical_plan::JoinType;
 use crate::physical_expr::PhysicalExpr;
 use crate::physical_planner::utils::{collect_batch_stream, OnceAsync, OnceFut};
@@ -35,7 +35,7 @@ impl NestedLoopJoinExec {
     ) -> Result<Self> {
         let left_schema = left.schema();
         let right_schema = right.schema();
-        let schema = build_join_schema(&left_schema, &right_schema, join_type)?;
+        let schema = build_physical_join_schema(&left_schema, &right_schema, join_type)?;
         Ok(NestedLoopJoinExec {
             left: left,
             right: right,

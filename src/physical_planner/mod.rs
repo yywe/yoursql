@@ -97,7 +97,6 @@ pub trait PhysicalPlanner: Send + Sync {
     fn create_physical_expr(
         &self,
         expr: &Expr,
-        input_schema: &Schema,
         input_logischema: &Schema,
         session_state: &SessionState,
     ) -> Result<Arc<dyn PhysicalExpr>>;
@@ -122,11 +121,10 @@ impl PhysicalPlanner for DefaultPhysicalPlanner {
     fn create_physical_expr(
         &self,
         expr: &Expr,
-        input_schema: &Schema,
         input_logischema: &Schema,
         _session_state: &SessionState,
     ) -> Result<Arc<dyn PhysicalExpr>> {
-        create_physical_expr(expr, input_schema, input_logischema)
+        create_physical_expr(expr, input_logischema)
     }
 }
 

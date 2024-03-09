@@ -14,7 +14,7 @@ use crate::common::schema::Schema;
 use crate::expr::expr;
 use crate::expr::expr::{AggregateFunction, Between, BinaryExpr, Expr, Like};
 use crate::expr::expr_rewriter::{unalias, unnormlize_cols};
-use crate::expr::logical_plan::builder::{build_join_schema, wrap_projection_for_join};
+use crate::expr::logical_plan::builder::wrap_projection_for_join;
 use crate::expr::logical_plan::{
     Aggregate, CreateTable, CrossJoin, Insert, Join, Limit, LogicalPlan, Projection, Sort,
     TableScan, Values,
@@ -34,6 +34,10 @@ use crate::session::SessionState;
 
 impl DefaultPhysicalPlanner {
     /// this ia a async func without async fn. cause it returns box future
+    /// Note: Logical Schema is the schema in logical Plan, in datafusion, it is DFSchema
+    /// Logical Schema Field include the Optional Table Reference 
+    /// Physical Schema is the schema (output) of physical Plan, it is Schema
+    /// Physical Schema do not have the Table Reference, always None
     pub fn create_initial_plan<'a>(
         &'a self,
         logical_plan: &'a LogicalPlan,
@@ -79,7 +83,6 @@ impl DefaultPhysicalPlanner {
                             tuple_err((
                                 self.create_physical_expr(
                                     e,
-                                    input_exec.schema().as_ref(),
                                     input_logischema.as_ref(),
                                     session_state,
                                 ),
@@ -99,7 +102,6 @@ impl DefaultPhysicalPlanner {
                     let input_logischema = filter.input.output_schema();
                     let physical_filter_expr = self.create_physical_expr(
                         &filter.predicate,
-                        physical_input.schema().as_ref(),
                         &input_logischema,
                         session_state,
                     )?;
@@ -180,15 +182,9 @@ impl DefaultPhysicalPlanner {
                     let physical_left = self.create_initial_plan(&left, session_state).await?;
                     let physical_right = self.create_initial_plan(&right, session_state).await?;
 
-                    let join_physchema = build_join_schema(
-                        physical_left.schema().as_ref(),
-                        physical_right.schema().as_ref(),
-                        join_type,
-                    )?;
                     let join_filter = match filter {
                         Some(expr) => Some(self.create_physical_expr(
                             expr,
-                            &join_physchema,
                             join_logischema,
                             session_state,
                         )?),
@@ -216,7 +212,6 @@ impl DefaultPhysicalPlanner {
                             tuple_err((
                                 self.create_physical_expr(
                                     e,
-                                    input_physchema.as_ref(),
                                     input_logischema.as_ref(),
                                     session_state,
                                 ),
@@ -243,14 +238,12 @@ impl DefaultPhysicalPlanner {
                 }
                 LogicalPlan::Sort(Sort { expr, input, fetch }) => {
                     let physical_input = self.create_initial_plan(input, session_state).await?;
-                    let input_schema = physical_input.as_ref().schema();
                     let input_logischema = input.output_schema();
                     let sort_expr = expr
                         .iter()
                         .map(|e| {
                             create_physical_sort_expr(
                                 e,
-                                input_schema.as_ref(),
                                 input_logischema.as_ref(),
                             )
                         })
@@ -293,7 +286,7 @@ impl DefaultPhysicalPlanner {
                                     // let input_logischema = input.output_schema();
                                     // NOTE: the values schema is empty schema??
 
-                                    self.create_physical_expr(expr, &schema, &schema, session_state)
+                                    self.create_physical_expr(expr, &schema, session_state)
                                 })
                                 .collect::<Result<Vec<Arc<dyn PhysicalExpr>>>>()
                         })
@@ -509,7 +502,7 @@ fn create_aggregate_expr(
             }
             let args = args
                 .iter()
-                .map(|expr| create_physical_expr(expr, input_schema, input_logischema))
+                .map(|expr| create_physical_expr(expr, input_logischema))
                 .collect::<Result<Vec<_>>>()?;
             let agg_expr = create_aggregate_expr_impl(fun, *distinct, &args, input_schema, name)?;
             Ok(agg_expr)
@@ -522,7 +515,6 @@ fn create_aggregate_expr(
 
 pub fn create_physical_sort_expr(
     e: &Expr,
-    input_schema: &Schema,
     input_logischema: &Schema,
 ) -> Result<PhysicalSortExpr> {
     if let Expr::Sort(expr::Sort {
@@ -532,7 +524,7 @@ pub fn create_physical_sort_expr(
     }) = e
     {
         Ok(PhysicalSortExpr {
-            expr: create_physical_expr(expr, input_schema, input_logischema)?,
+            expr: create_physical_expr(expr, input_logischema)?,
             descending: !(*asc),
             nulls_first: *nulls_first,
         })
