@@ -1,18 +1,21 @@
-use super::{ExecutionPlan, RecordBatchStream, SendableRecordBatchStream};
-use crate::{
-    common::{record_batch::RecordBatch, schema::Schema, types::DataValue},
-    expr::logical_plan::{builder::build_join_schema, JoinType},
-    physical_expr::PhysicalExpr,
-    physical_planner::{
-        utils::{collect_batch_stream, OnceAsync, OnceFut},
-        SchemaRef,
-    },
-    session::SessionState,
-};
+use std::collections::HashMap;
+use std::sync::Arc;
+use std::task::Poll;
+
 use anyhow::Result;
 use futures::{ready, Stream, StreamExt};
 use itertools::multiunzip;
-use std::{collections::HashMap, sync::Arc, task::Poll};
+
+use super::{ExecutionPlan, RecordBatchStream, SendableRecordBatchStream};
+use crate::common::record_batch::RecordBatch;
+use crate::common::schema::Schema;
+use crate::common::types::DataValue;
+use crate::expr::logical_plan::builder::build_physical_join_schema;
+use crate::expr::logical_plan::JoinType;
+use crate::physical_expr::PhysicalExpr;
+use crate::physical_planner::utils::{collect_batch_stream, OnceAsync, OnceFut};
+use crate::physical_planner::SchemaRef;
+use crate::session::SessionState;
 #[derive(Debug)]
 pub struct NestedLoopJoinExec {
     pub left: Arc<dyn ExecutionPlan>,
@@ -32,7 +35,7 @@ impl NestedLoopJoinExec {
     ) -> Result<Self> {
         let left_schema = left.schema();
         let right_schema = right.schema();
-        let schema = build_join_schema(&left_schema, &right_schema, join_type)?;
+        let schema = build_physical_join_schema(&left_schema, &right_schema, join_type)?;
         Ok(NestedLoopJoinExec {
             left: left,
             right: right,
@@ -258,14 +261,17 @@ fn join_left_and_right_batch(
         }
 
         match join_type {
-            // for right join and full join, the left side has all the data, right side is looped as a stream
-            // here, for rows in right side stream, there is not matched left, add left as NULLs
+            // for right join and full join, the left side has all the data, right side is looped as
+            // a stream here, for rows in right side stream, there is not matched left,
+            // add left as NULLs
 
-            // for full join, still, left is build side has all data, ROWs with unmatched right side (left NULLs) are added here
-            // meanwhile, visited_left_side will accumulate the visited (matched) left rows.
-            //when right side stream is done, then then finally look at remaining unvisited left index
+            // for full join, still, left is build side has all data, ROWs with unmatched right side
+            // (left NULLs) are added here meanwhile, visited_left_side will accumulate
+            // the visited (matched) left rows. when right side stream is done, then
+            // then finally look at remaining unvisited left index
 
-            // as such, the full join for another half of unmatched rows (left unmatched, add NULLs right), is only processed in left is build side
+            // as such, the full join for another half of unmatched rows (left unmatched, add NULLs
+            // right), is only processed in left is build side
             // poll_next_impl_for_build_left
             JoinType::Right | JoinType::Full => {
                 for idx in 0..right_batch.rows.len() {

@@ -13,19 +13,22 @@ pub mod sort;
 pub mod utils;
 pub mod values;
 
-use crate::{
-    common::{
-        record_batch::RecordBatch,
-        schema::{Schema, SchemaRef},
-    },
-    expr::{expr::Expr, logical_plan::LogicalPlan},
-    physical_expr::{planner::create_physical_expr, PhysicalExpr},
-    session::SessionState,
-};
+use std::any::Any;
+use std::fmt::Debug;
+use std::pin::Pin;
+use std::sync::Arc;
+
 use anyhow::Result;
 use async_trait::async_trait;
 use futures::{Stream, StreamExt};
-use std::{any::Any, fmt::Debug, pin::Pin, sync::Arc};
+
+use crate::common::record_batch::RecordBatch;
+use crate::common::schema::{Schema, SchemaRef};
+use crate::expr::expr::Expr;
+use crate::expr::logical_plan::LogicalPlan;
+use crate::physical_expr::planner::create_physical_expr;
+use crate::physical_expr::PhysicalExpr;
+use crate::session::SessionState;
 
 pub enum ExecutionState {
     ReadingInput,
@@ -94,7 +97,6 @@ pub trait PhysicalPlanner: Send + Sync {
     fn create_physical_expr(
         &self,
         expr: &Expr,
-        input_schema: &Schema,
         input_logischema: &Schema,
         session_state: &SessionState,
     ) -> Result<Arc<dyn PhysicalExpr>>;
@@ -119,11 +121,10 @@ impl PhysicalPlanner for DefaultPhysicalPlanner {
     fn create_physical_expr(
         &self,
         expr: &Expr,
-        input_schema: &Schema,
         input_logischema: &Schema,
         _session_state: &SessionState,
     ) -> Result<Arc<dyn PhysicalExpr>> {
-        create_physical_expr(expr, input_schema, input_logischema)
+        create_physical_expr(expr, input_logischema)
     }
 }
 

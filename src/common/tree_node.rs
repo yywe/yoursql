@@ -1,5 +1,6 @@
-use anyhow::Result;
 use std::sync::Arc;
+
+use anyhow::Result;
 #[derive(Debug)]
 pub enum VisitRecursion {
     Continue,

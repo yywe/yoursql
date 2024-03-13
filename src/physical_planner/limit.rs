@@ -1,15 +1,14 @@
-use super::{RecordBatchStream, SendableRecordBatchStream};
-use crate::{
-    common::{record_batch::RecordBatch, schema::SchemaRef},
-    physical_planner::ExecutionPlan,
-    session::SessionState,
-};
+use std::sync::Arc;
+use std::task::{Context, Poll};
+
 use anyhow::Result;
 use futures::{Stream, StreamExt};
-use std::{
-    sync::Arc,
-    task::{Context, Poll},
-};
+
+use super::{RecordBatchStream, SendableRecordBatchStream};
+use crate::common::record_batch::RecordBatch;
+use crate::common::schema::SchemaRef;
+use crate::physical_planner::ExecutionPlan;
+use crate::session::SessionState;
 
 #[derive(Debug)]
 pub struct LimitExec {
@@ -41,7 +40,7 @@ impl LimitStream {
             schema,
         }
     }
-    //loop to get from the stream until reach skip and get the first batch of data
+    // loop to get from the stream until reach skip and get the first batch of data
     fn poll_and_skip(&mut self, cx: &mut Context<'_>) -> Poll<Option<Result<RecordBatch>>> {
         let input = self.input.as_mut().unwrap();
         loop {
@@ -69,7 +68,7 @@ impl LimitStream {
                     if batch.rows.len() > 0 && self.skip == 0 {
                         break poll; // mean we already get some data
                     } else {
-                        //continue poll the stream until get some data
+                        // continue poll the stream until get some data
                     }
                 }
                 Poll::Ready(Some(Err(_e))) => break poll,
@@ -85,11 +84,11 @@ impl LimitStream {
             self.input = None;
             None
         } else if batch.rows.len() < self.fetch {
-            //the whole batch is needed
+            // the whole batch is needed
             self.fetch -= batch.rows.len();
             Some(batch)
         } else {
-            //the batch only has a subset of rows needed. from 0..fetch
+            // the batch only has a subset of rows needed. from 0..fetch
             let new_batch = RecordBatch {
                 rows: batch.rows[..self.fetch].to_vec(),
                 schema: batch.schema.clone(),
@@ -151,7 +150,7 @@ impl Stream for LimitStream {
                     other => other,
                 })
             }
-            None => Poll::Ready(None), //input has been cleared, done
+            None => Poll::Ready(None), // input has been cleared, done
         };
         poll
     }

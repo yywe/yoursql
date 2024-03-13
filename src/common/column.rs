@@ -1,7 +1,10 @@
-use super::{table_reference::OwnedTableReference, utils::parse_identifiers_normalized};
-use crate::common::schema::Schema;
-use anyhow::{anyhow, Result};
 use std::collections::HashSet;
+
+use anyhow::{anyhow, Result};
+
+use super::table_reference::OwnedTableReference;
+use super::utils::parse_identifiers_normalized;
+use crate::common::schema::Schema;
 
 #[derive(Debug, Clone, Hash, Eq, Ord, PartialOrd, PartialEq)]
 pub struct Column {

@@ -1,12 +1,14 @@
-use crate::{
-    common::{record_batch::RecordBatch, schema::SchemaRef},
-    expr::expr::Expr,
-    physical_planner::ExecutionPlan,
-    session::SessionState,
-};
+use std::any::Any;
+use std::sync::Arc;
+
 use anyhow::Result;
 use async_trait::async_trait;
-use std::{any::Any, sync::Arc};
+
+use crate::common::record_batch::RecordBatch;
+use crate::common::schema::SchemaRef;
+use crate::expr::expr::Expr;
+use crate::physical_planner::ExecutionPlan;
+use crate::session::SessionState;
 
 pub mod empty;
 pub mod memory;

@@ -1,27 +1,25 @@
-use crate::{
-    catalog::{DBList, MemoryDB, MemoryDBList, DB},
-    common::{
-        config::ConfigOptions,
-        record_batch::RecordBatch,
-        table_reference::{OwnedTableReference, ResolvedTableReference, TableReference},
-    },
-    expr::logical_plan::LogicalPlan,
-    logical_planner::{
-        object_name_to_table_refernce, LogicalPlanner, ParserOptions, PlannerContext,
-    },
-    physical_planner::{DefaultPhysicalPlanner, ExecutionPlan, PhysicalPlanner},
-    storage::Table,
-};
+use std::collections::hash_map::Entry;
+use std::collections::HashMap;
+use std::ops::ControlFlow;
+use std::sync::Arc;
+
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use futures::TryStreamExt;
 use parking_lot::RwLock;
-use std::{
-    collections::{hash_map::Entry, HashMap},
-    ops::ControlFlow,
-    sync::Arc,
-};
 use uuid::Uuid;
+
+use crate::catalog::{DBList, MemoryDB, MemoryDBList, DB};
+use crate::common::config::ConfigOptions;
+use crate::common::record_batch::RecordBatch;
+use crate::common::table_reference::{OwnedTableReference, ResolvedTableReference, TableReference};
+use crate::expr::logical_plan::LogicalPlan;
+use crate::logical_planner::{
+    object_name_to_table_refernce, LogicalPlanner, ParserOptions, PlannerContext,
+};
+use crate::parser::parse;
+use crate::physical_planner::{DefaultPhysicalPlanner, ExecutionPlan, PhysicalPlanner};
+use crate::storage::Table;
 
 #[derive(Clone)]
 pub struct SessionContext {
@@ -150,7 +148,7 @@ impl SessionState {
 
     /// logical optimization
     pub fn logical_optimize(&self, plan: &LogicalPlan) -> Result<LogicalPlan> {
-        //todo: impl logical optimize
+        // todo: impl logical optimize
         println!("todo: implement logical optimizer");
         Ok(plan.clone())
     }
@@ -245,6 +243,14 @@ impl SessionState {
             .map(|x| object_name_to_table_refernce(x, enable_ident_normalization))
             .collect::<Result<_>>()
     }
+
+    /// SQL entry
+    pub async fn run(&self, sql: &str) -> Result<Vec<RecordBatch>> {
+        let statement = parse(sql)?;
+        let logical_plan = self.make_logical_plan(statement).await?;
+        let physical_plan = self.create_physical_plan(&logical_plan).await?;
+        self.execute_physical_plan(physical_plan).await
+    }
 }
 
 impl SessionContext {
@@ -318,20 +324,19 @@ impl Default for SessionContext {
 
 #[cfg(test)]
 pub mod test {
-    use super::*;
-    use crate::{
-        common::{
-            record_batch::RecordBatch,
-            schema::{Field, Schema},
-            table_reference::OwnedTableReference,
-            types::{DataType, DataValue},
-        },
-        parser::parse,
-        storage::{empty::EmptyTable, memory::MemTable},
-    };
+    use std::collections::HashMap;
+
     use anyhow::Result;
     use futures::StreamExt;
-    use std::collections::HashMap;
+
+    use super::*;
+    use crate::common::record_batch::RecordBatch;
+    use crate::common::schema::{Field, Schema};
+    use crate::common::table_reference::OwnedTableReference;
+    use crate::common::types::{DataType, DataValue};
+    use crate::parser::parse;
+    use crate::storage::empty::EmptyTable;
+    use crate::storage::memory::MemTable;
 
     pub fn init_mem_testdb(session: &mut SessionContext) -> Result<()> {
         let test_database = MemoryDB::new();
@@ -548,12 +553,13 @@ pub mod test {
         let student_table = testdb.get_table("student").await.unwrap();
         let exec = student_table.scan(&session.state(), None, &[]).await?;
         let mut it = exec.execute(&session.state())?;
-        // note 1st unwrap is for option, 2nd the item of the stream is Result of RecordBatch, so use ?
+        // note 1st unwrap is for option, 2nd the item of the stream is Result of RecordBatch, so
+        // use ?
         let fetch_batch1: RecordBatch = it.next().await.unwrap()?;
-        //println!("first batch:{:?}", fetch_batch1);
+        // println!("first batch:{:?}", fetch_batch1);
         assert_eq!(fetch_batch1.rows.len(), 2);
         let fetch_batch2: RecordBatch = it.next().await.unwrap()?;
-        //println!("2nd batch:{:?}", fetch_batch2);
+        // println!("2nd batch:{:?}", fetch_batch2);
         assert_eq!(fetch_batch2.rows.len(), 3);
         let done = it.next().await;
         assert_eq!(true, done.is_none());
@@ -571,9 +577,9 @@ pub mod test {
             .read()
             .extract_table_references(&statement)
             .unwrap();
-        //println!("referered tables: {:#?}", _referred_tables);
+        // println!("referered tables: {:#?}", _referred_tables);
         let _ans_plan = session.state.read().make_logical_plan(statement).await;
-        //println!("logical plan:{}", _ans_plan);
+        // println!("logical plan:{}", _ans_plan);
         Ok(())
     }
 
@@ -582,13 +588,13 @@ pub mod test {
         let mut session = SessionContext::default();
         init_mem_testdb(&mut session)?;
 
-        //cross join
-        //println!("test cross join");
+        // cross join
+        // println!("test cross join");
         let sql = "SELECT student.id, course.name, age, address, instructor from testdb.student cross join testdb.course";
-        //println!("the input sql: {}", sql);
+        // println!("the input sql: {}", sql);
         let statement = parse(sql).unwrap();
         let logical_plan = session.state.read().make_logical_plan(statement).await?;
-        //println!("logical plan:{:?}", logical_plan);
+        // println!("logical plan:{:?}", logical_plan);
         let physical_plan = session
             .state
             .read()
@@ -601,13 +607,13 @@ pub mod test {
             .await?;
         session.state.read().print_record_batches(&record_batches);
 
-        //nested loop join
-        //println!("test regular join-nestedloop");
+        // nested loop join
+        // println!("test regular join-nestedloop");
         let sql = "SELECT student.id, student.name, score from testdb.student inner join testdb.enroll on id=student_id";
-        //println!("the input sql: {}", sql);
+        // println!("the input sql: {}", sql);
         let statement = parse(sql).unwrap();
         let logical_plan = session.state.read().make_logical_plan(statement).await?;
-        //println!("logical plan:{:?}", logical_plan);
+        // println!("logical plan:{:?}", logical_plan);
         let physical_plan = session
             .state
             .read()
@@ -620,7 +626,7 @@ pub mod test {
             .await?;
         session.state.read().print_record_batches(&record_batches);
 
-        //aggregate
+        // aggregate
         println!("test aggregate no-groupby-----");
         let sql = "SELECT max(score) from testdb.enroll";
         println!("the input sql: {}", sql);
@@ -640,7 +646,7 @@ pub mod test {
             .await?;
         session.state.read().print_record_batches(&record_batches);
 
-        //aggregate
+        // aggregate
         println!("test aggregate with-groupby----");
         let sql = "SELECT student_id, sum(score) from testdb.enroll group by student_id";
         println!("the input sql: {}", sql);
@@ -659,7 +665,7 @@ pub mod test {
             .await?;
         session.state.read().print_record_batches(&record_batches);
 
-        //sort
+        // sort
         println!("test sort");
         let sql = "SELECT id, name, age from testdb.student order by id desc";
         println!("the input sql: {}", sql);
@@ -678,7 +684,7 @@ pub mod test {
             .await?;
         session.state.read().print_record_batches(&record_batches);
 
-        //limit offset
+        // limit offset
         println!("test limit and offset");
         let sql = "SELECT id, name, age from testdb.student order by id desc limit 2 offset 2";
         println!("the input sql: {}", sql);
@@ -697,7 +703,7 @@ pub mod test {
             .await?;
         session.state.read().print_record_batches(&record_batches);
 
-        //like opeartion
+        // like opeartion
         println!("test like expression");
         let sql = "SELECT id, name, age, address from testdb.student where address like '%lin%'";
         println!("the input sql: {}", sql);

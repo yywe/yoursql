@@ -1,5 +1,6 @@
-use anyhow::{anyhow, Result};
 use std::fmt::Display;
+
+use anyhow::{anyhow, Result};
 
 /// this is a very tricky implementation. detailed comments are listed.
 
@@ -51,7 +52,7 @@ impl<F: ConfigField + Default> ConfigField for Option<F> {
 /// while for the set method, now it does not care about the key since we now know the
 /// reference of self, directly assign *self to the parsed value from the value string
 macro_rules! config_field {
-    ($t: ty) => {
+    ($t:ty) => {
         impl ConfigField for $t {
             fn visit<V: Visit>(&self, v: &mut V, key: &str, description: &'static str) {
                 v.some(key, self, description)

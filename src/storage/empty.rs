@@ -1,15 +1,17 @@
-use crate::{
-    common::{record_batch::RecordBatch, schema::SchemaRef},
-    expr::expr::Expr,
-    physical_planner::{empty::EmptyExec, ExecutionPlan},
-    session::SessionState,
-    storage::Table,
-};
+use std::any::Any;
+use std::sync::Arc;
+
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
-use std::{any::Any, sync::Arc};
 
 use super::project_table;
+use crate::common::record_batch::RecordBatch;
+use crate::common::schema::SchemaRef;
+use crate::expr::expr::Expr;
+use crate::physical_planner::empty::EmptyExec;
+use crate::physical_planner::ExecutionPlan;
+use crate::session::SessionState;
+use crate::storage::Table;
 
 pub struct EmptyTable {
     schema: SchemaRef,

@@ -1,18 +1,18 @@
-use super::SendableRecordBatchStream;
-use crate::{
-    common::{record_batch::RecordBatch, schema::SchemaRef},
-    physical_planner::{ExecutionPlan, RecordBatchStream},
-    session::SessionState,
-    storage::Table,
-};
+use std::fmt::Debug;
+use std::pin::Pin;
+use std::sync::Arc;
+use std::task::{Context, Poll};
+
 use anyhow::Result;
 use futures::{ready, Future, FutureExt, Stream, StreamExt};
-use std::{
-    fmt::Debug,
-    pin::Pin,
-    sync::Arc,
-    task::{Context, Poll},
-};
+
+use super::SendableRecordBatchStream;
+use crate::common::record_batch::RecordBatch;
+use crate::common::schema::{SchemaRef, RESP_SCHEMA_REF};
+use crate::common::types::DataValue;
+use crate::physical_planner::{ExecutionPlan, RecordBatchStream};
+use crate::session::SessionState;
+use crate::storage::Table;
 
 pub struct InsertExec {
     input: Arc<dyn ExecutionPlan>,
@@ -68,9 +68,10 @@ impl ExecutionPlan for InsertExec {
         let data = self.input.execute(session_state)?;
         Ok(Box::pin(InsertStreamAdapter {
             data: data,
-            schema: self.schema.clone(),
+            schema: RESP_SCHEMA_REF.clone(), // note the adaptor output is the response schema
             table: self.table.clone(),
             pending_insert_fut: None,
+            terminated: false,
         }))
     }
 }
@@ -89,6 +90,7 @@ struct InsertStreamAdapter {
     schema: SchemaRef,
     table: Arc<dyn Table>,
     pending_insert_fut: Option<TableInsertFuture>,
+    terminated: bool,
 }
 
 impl RecordBatchStream for InsertStreamAdapter {
@@ -100,11 +102,18 @@ impl RecordBatchStream for InsertStreamAdapter {
 impl Stream for InsertStreamAdapter {
     type Item = Result<RecordBatch>;
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        if self.terminated {
+            return Poll::Ready(None);
+        }
+        let mut rows_inserted: u64 = 0;
+        let mut rows_in_batch: u64 = 0;
         loop {
             if let Some(fut) = &mut self.pending_insert_fut {
                 let result = ready!(fut.poll_unpin(cx));
                 match result {
                     Ok(_) => {
+                        rows_inserted += rows_in_batch;
+                        rows_in_batch = 0;
                         self.pending_insert_fut = None;
                         continue;
                     }
@@ -116,16 +125,16 @@ impl Stream for InsertStreamAdapter {
                 }
             } else {
                 match ready!(self.data.poll_next_unpin(cx)) {
-                    /* took a lot of time to figure things out, there are two concerns
-                        here. 1. self.table is immutable reference, we cannot have immutable
-                        reference and mutable reference (mut self) at the same time. so by clone
-                        self.table and use it, we do not need to use self.table.insert but use
-                        the cloned Arc<dyn Table>. 2. the lifetime of cloned Arc<dyn Table>, must
-                        live together with the whole future. so here we use async move and package
-                        the cloned_tbl to the future instance and addressed the lifetime issue
-                        if we remove the move keyword, will see cloned_tbl does not live enough.
-                    */
+                    // took a lot of time to figure things out, there are two concerns
+                    // here. 1. self.table is immutable reference, we cannot have immutable
+                    // reference and mutable reference (mut self) at the same time. so by clone
+                    // self.table and use it, we do not need to use self.table.insert but use
+                    // the cloned Arc<dyn Table>. 2. the lifetime of cloned Arc<dyn Table>, must
+                    // live together with the whole future. so here we use async move and package
+                    // the cloned_tbl to the future instance and addressed the lifetime issue
+                    // if we remove the move keyword, will see cloned_tbl does not live enough.
                     Some(Ok(rows)) => {
+                        rows_in_batch = rows.rows.len() as u64;
                         let cloned_tbl = Arc::clone(&self.table);
                         let fut = async move {
                             let out = cloned_tbl.insert(rows).await;
@@ -137,7 +146,18 @@ impl Stream for InsertStreamAdapter {
                     }
                     Some(Err(e)) => return Poll::Ready(Some(Err(e.into()))),
                     None => {
-                        return Poll::Ready(None);
+                        self.terminated = true;
+                        return Poll::Ready(Some(Ok(RecordBatch {
+                            schema: RESP_SCHEMA_REF.clone(),
+                            rows: vec![vec![
+                                DataValue::UInt8(Some(0)),
+                                DataValue::UInt64(Some(rows_inserted)),
+                                DataValue::UInt64(Some(0)),
+                                DataValue::UInt16(Some(0)),
+                                DataValue::Utf8(Some(String::new())),
+                                DataValue::Utf8(Some(String::new())),
+                            ]],
+                        })));
                     }
                 }
             }

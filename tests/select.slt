@@ -1,0 +1,40 @@
+statement ok
+create table t1(id int, name varchar(10))
+
+statement ok
+insert into t1 values (1, 'name1'), (2, 'name2')
+
+statement ok
+create table t2(id int, addr varchar(10))
+
+statement ok
+insert into t2 values (1, 'addr1'), (2, 'addr2')
+
+# where
+query IT
+select id, addr from t2 where id=1
+----
+1 addr1
+
+
+# order by
+query IT
+select * from t2 order by id desc
+----
+2 addr2
+1 addr1
+
+
+# limit and offset
+query IT
+select * from t2 limit 1 offset 1
+----
+2 addr2
+
+
+# join
+query IIT rowsort
+select t1.id, t1.name, addr from t1 inner join t2 on t1.id=t2.id
+----
+1 name1 addr1
+2 name2 addr2

@@ -1,18 +1,16 @@
-use crate::{
-    common::{
-        column::Column,
-        record_batch::RecordBatch,
-        schema::{Field, Schema, SchemaRef},
-        types::DataValue,
-    },
-    physical_expr::PhysicalExpr,
-    session::SessionState,
-};
+use std::collections::HashMap;
+use std::sync::Arc;
+
 use anyhow::{anyhow, Result};
 use futures::{Stream, StreamExt};
-use std::{collections::HashMap, sync::Arc};
 
 use super::{ExecutionPlan, RecordBatchStream, SendableRecordBatchStream};
+use crate::common::column::Column;
+use crate::common::record_batch::RecordBatch;
+use crate::common::schema::{Field, Schema, SchemaRef};
+use crate::common::types::DataValue;
+use crate::physical_expr::PhysicalExpr;
+use crate::session::SessionState;
 
 #[derive(Debug)]
 pub struct ProjectionExec {

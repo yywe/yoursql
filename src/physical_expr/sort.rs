@@ -1,6 +1,7 @@
-use crate::physical_expr::PhysicalExpr;
 use core::hash::Hash;
 use std::sync::Arc;
+
+use crate::physical_expr::PhysicalExpr;
 
 #[derive(Clone, Debug)]
 pub struct PhysicalSortExpr {

@@ -1,14 +1,19 @@
-use super::{ExecutionPlan, RecordBatchStream, SendableRecordBatchStream};
-use crate::{
-    common::{record_batch::RecordBatch, schema::SchemaRef, types::DataValue},
-    physical_expr::sort::PhysicalSortExpr,
-    physical_planner::{utils::transpose_matrix, ExecutionState},
-    session::SessionState,
-};
-use anyhow::Result;
 use core::cmp::min;
+use std::pin::Pin;
+use std::sync::Arc;
+use std::task::Poll;
+
+use anyhow::Result;
 use futures::{ready, Stream, StreamExt};
-use std::{pin::Pin, sync::Arc, task::Poll};
+
+use super::{ExecutionPlan, RecordBatchStream, SendableRecordBatchStream};
+use crate::common::record_batch::RecordBatch;
+use crate::common::schema::SchemaRef;
+use crate::common::types::DataValue;
+use crate::physical_expr::sort::PhysicalSortExpr;
+use crate::physical_planner::utils::transpose_matrix;
+use crate::physical_planner::ExecutionState;
+use crate::session::SessionState;
 
 #[derive(Debug)]
 pub struct SortExec {
@@ -45,7 +50,7 @@ impl ExecutionPlan for SortExec {
         Ok(Arc::new(new_sort))
     }
     fn execute(&self, state: &SessionState) -> Result<SendableRecordBatchStream> {
-        //todo: let batch size configurable
+        // todo: let batch size configurable
         let batch_size = 2;
         let input = self.input.execute(state)?;
         Ok(Box::pin(InMemSorter::new(
@@ -58,7 +63,7 @@ impl ExecutionPlan for SortExec {
 }
 
 fn sort_batch(batch: RecordBatch, sort_expr: &Vec<PhysicalSortExpr>) -> Result<RecordBatch> {
-    //note here each inner vec is the expr values at different rows
+    // note here each inner vec is the expr values at different rows
     let schema = batch.schema.clone();
     let sort_values = sort_expr
         .iter()

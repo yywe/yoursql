@@ -1,7 +1,8 @@
-use crate::{common::types::DataType, expr::expr::Operator};
 use anyhow::{anyhow, Context, Result};
 
 use super::expr::AggregateFunctionType;
+use crate::common::types::DataType;
+use crate::expr::expr::Operator;
 
 pub static STRINGS: &[DataType] = &[DataType::Utf8];
 pub static NUMERICS: &[DataType] = &[
@@ -108,7 +109,7 @@ pub enum Volatility {
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum TypeSignature {
     VariadicAny,                   // arbitary number of arguments with arbitrary types
-    Uniform(usize, Vec<DataType>), //fixed number of identical argument types, from vec,
+    Uniform(usize, Vec<DataType>), // fixed number of identical argument types, from vec,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

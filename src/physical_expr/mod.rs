@@ -1,15 +1,13 @@
-use crate::common::{
-    record_batch::RecordBatch,
-    schema::Schema,
-    types::{DataType, DataValue},
-};
+use std::any::Any;
+use std::fmt::{Debug, Display};
+use std::hash::{Hash, Hasher};
+use std::sync::Arc;
+
 use anyhow::Result;
-use std::{
-    any::Any,
-    fmt::{Debug, Display},
-    hash::{Hash, Hasher},
-    sync::Arc,
-};
+
+use crate::common::record_batch::RecordBatch;
+use crate::common::schema::Schema;
+use crate::common::types::{DataType, DataValue};
 
 pub mod accumulator;
 pub mod aggregate;

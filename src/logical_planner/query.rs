@@ -1,35 +1,34 @@
-use super::{object_name_to_table_refernce, LogicalPlanner, PlannerContext};
-use crate::{
-    common::{
-        column::Column,
-        schema::{Field, Schema},
-        table_reference::{OwnedTableReference, TableReference},
-        utils::extract_aliases,
-    },
-    expr::{
-        expr::{Expr, Sort},
-        expr_rewriter::{
-            normalize_col, normalize_col_with_schemas_and_ambiguity_check, resolve_alias_to_exprs,
-            resolve_columns,
-        },
-        logical_plan::{
-            builder::{project, LogicalPlanBuilder},
-            CreateTable, Filter, JoinType, LogicalPlan, SubqueryAlias, Values,
-        },
-        utils::{col, extract_columns_from_expr, find_aggregate_exprs},
-    },
-    logical_planner::utils::{check_columns_satisfy_exprs, expr_as_column_expr, rebase_expr},
-};
+use std::collections::HashSet;
+use std::sync::Arc;
+
 use anyhow::{anyhow, Result};
 use sqlparser::ast::{
     ColumnDef, Expr as SQLExpr, Ident, Join, JoinConstraint, ObjectName, Offset as SQLOffset,
     OrderByExpr, Query, Select, SelectItem, SetExpr, TableAlias, TableFactor, TableWithJoins,
 };
-use std::{collections::HashSet, sync::Arc};
+
+use super::{object_name_to_table_refernce, LogicalPlanner, PlannerContext};
+use crate::common::column::Column;
+use crate::common::schema::{Field, Schema};
+use crate::common::table_reference::{OwnedTableReference, TableReference};
+use crate::common::utils::extract_aliases;
+use crate::expr::expr::{Expr, Sort};
+use crate::expr::expr_rewriter::{
+    normalize_col, normalize_col_with_schemas_and_ambiguity_check, resolve_alias_to_exprs,
+    resolve_columns,
+};
+use crate::expr::logical_plan::builder::{project, LogicalPlanBuilder};
+use crate::expr::logical_plan::{
+    CreateTable, Filter, JoinType, LogicalPlan, SubqueryAlias, Values,
+};
+use crate::expr::utils::{col, extract_columns_from_expr, find_aggregate_exprs};
+use crate::logical_planner::utils::{
+    check_columns_satisfy_exprs, expr_as_column_expr, rebase_expr,
+};
 
 impl<'a, C: PlannerContext> LogicalPlanner<'a, C> {
     pub fn plan_query(&self, query: Query) -> Result<LogicalPlan> {
-        //println!("plan query {:#?}", query);
+        // println!("plan query {:#?}", query);
         let set_expr = query.body;
         let plan = self.plan_set_expr(*set_expr)?;
         let plan = self.order_by(plan, query.order_by)?;
@@ -73,7 +72,7 @@ impl<'a, C: PlannerContext> LogicalPlanner<'a, C> {
         }
     }
 
-    ///here simply convert to ast::Expr to logical Expr based on empty schema
+    /// here simply convert to ast::Expr to logical Expr based on empty schema
     /// the datafusion impl also infer schema from values, refer LogicalPlanBuilder::values
     /// here in plan_insert, we will project the schema based on columns_ident
     /// TODO: remove to mutation
@@ -88,7 +87,7 @@ impl<'a, C: PlannerContext> LogicalPlanner<'a, C> {
                     .collect::<Result<Vec<_>>>()
             })
             .collect::<Result<Vec<_>>>()?;
-        //values should not be based on any other schema, thus just empty
+        // values should not be based on any other schema, thus just empty
         Ok(LogicalPlan::Values(Values {
             schema: Arc::new(schema),
             values: values,
@@ -114,8 +113,9 @@ impl<'a, C: PlannerContext> LogicalPlanner<'a, C> {
         // now get the original select expressions (projection, may contain aggregation expressions)
         let select_exprs = self.select_items_to_exprs(&plan, select.projection, empty_from)?;
 
-        // next do a projection, note this is just a temp projection, in order to extract the output schema, which may be
-        // used in having or group by, the combined schema will have all the exprs, including alias
+        // next do a projection, note this is just a temp projection, in order to extract the output
+        // schema, which may be used in having or group by, the combined schema will have
+        // all the exprs, including alias
         let projected_plan = self.project(plan.clone(), select_exprs.clone())?;
         let mut combined_schema = (*projected_plan.output_schema()).clone();
         combined_schema = combined_schema.merge(plan.output_schema().as_ref())?;
@@ -159,12 +159,12 @@ impl<'a, C: PlannerContext> LogicalPlanner<'a, C> {
                 for f in plan.output_schema().all_fields() {
                     alias_map.remove(f.name());
                 }
-                //now convert back the alias
+                // now convert back the alias
                 let group_by_expr = resolve_alias_to_exprs(&group_by_expr, &alias_map)?;
 
                 // in arrow datafusion, also support position (integer) exprs. here ommitted.
 
-                //normalize
+                // normalize
                 let group_by_expr = normalize_col(group_by_expr, &projected_plan)?;
                 self.validate_schema_satisfies_exprs(
                     plan.output_schema().as_ref(),
@@ -207,7 +207,7 @@ impl<'a, C: PlannerContext> LogicalPlanner<'a, C> {
             plan
         };
 
-        //finally, we do the projection. then all done.
+        // finally, we do the projection. then all done.
 
         let plan = project(plan, select_exprs_post_aggr)?;
         Ok(plan)
@@ -540,7 +540,8 @@ impl<'a, C: PlannerContext> LogicalPlanner<'a, C> {
         LogicalPlanBuilder::from(input).project(exprs)?.build()
     }
 
-    /// do aggregation, return the new select and having exprs where the aggregate func will use aggregate output columns
+    /// do aggregation, return the new select and having exprs where the aggregate func will use
+    /// aggregate output columns
     fn aggregate(
         &self,
         input: LogicalPlan,
@@ -666,10 +667,9 @@ impl<'a, C: PlannerContext> LogicalPlanner<'a, C> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::{
-        parser::parse,
-        session::{test::init_mem_testdb, SessionContext},
-    };
+    use crate::parser::parse;
+    use crate::session::test::init_mem_testdb;
+    use crate::session::SessionContext;
     #[tokio::test]
     async fn test_plan_select() -> Result<()> {
         let mut session = SessionContext::default();
@@ -678,13 +678,13 @@ mod test {
         let sql = "SELECT A.id, A.name, B.score from testdb.student A inner join testdb.enroll B on A.id=B.student_id inner join testdb.course C on A.id=C.id where B.score > 99 order by B.score";
         let statement = parse(sql).unwrap();
         let _plan = session.state.read().make_logical_plan(statement).await?;
-        //println!("{:?}", _plan);
+        // println!("{:?}", _plan);
 
         // the case of aggregation
         let sql = "SELECT max(age)+100, address from testdb.student where id<100 group by address having max(age)<20";
         let statement = parse(sql).unwrap();
         let _plan = session.state.read().make_logical_plan(statement).await?;
-        //println!("{:?}", _plan);
+        // println!("{:?}", _plan);
         Ok(())
     }
 }

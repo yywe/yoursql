@@ -1,7 +1,11 @@
-use crate::expr::expr::Expr;
-use anyhow::Result;
-use sqlparser::{ast::Ident, dialect::GenericDialect, parser::Parser};
 use std::collections::HashMap;
+
+use anyhow::Result;
+use sqlparser::ast::Ident;
+use sqlparser::dialect::GenericDialect;
+use sqlparser::parser::Parser;
+
+use crate::expr::expr::Expr;
 
 pub(crate) fn parse_identiiers(s: &str) -> Result<Vec<Ident>> {
     let dialect = GenericDialect;

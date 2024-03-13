@@ -1,17 +1,15 @@
-use crate::{
-    common::{
-        record_batch::RecordBatch,
-        schema::{Schema, SchemaRef},
-    },
-    physical_planner::utils::{collect_batch_stream, OnceAsync, OnceFut},
-    session::SessionState,
-};
+use std::sync::Arc;
+use std::task::Poll;
+
 use anyhow::Result;
 use async_trait::async_trait;
 use futures::{ready, Stream, StreamExt};
-use std::{sync::Arc, task::Poll};
 
 use super::{ExecutionPlan, RecordBatchStream, SendableRecordBatchStream};
+use crate::common::record_batch::RecordBatch;
+use crate::common::schema::{Schema, SchemaRef};
+use crate::physical_planner::utils::{collect_batch_stream, OnceAsync, OnceFut};
+use crate::session::SessionState;
 
 #[derive(Debug)]
 pub struct CrossJoinExec {

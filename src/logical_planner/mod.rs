@@ -4,17 +4,15 @@ pub mod query;
 pub mod statement;
 pub mod utils;
 
-use crate::{
-    common::{
-        config::ConfigOptions,
-        table_reference::{OwnedTableReference, TableReference},
-    },
-    logical_planner::utils::normalize_ident,
-    storage::Table,
-};
+use std::sync::Arc;
+
 use anyhow::{anyhow, Result};
 use sqlparser::ast::{Ident, ObjectName};
-use std::sync::Arc;
+
+use crate::common::config::ConfigOptions;
+use crate::common::table_reference::{OwnedTableReference, TableReference};
+use crate::logical_planner::utils::normalize_ident;
+use crate::storage::Table;
 
 pub trait PlannerContext {
     fn get_table_provider(&self, name: TableReference) -> Result<Arc<dyn Table>>;

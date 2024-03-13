@@ -1,10 +1,8 @@
-use crate::{
-    common::tree_node::{TreeNode, VisitRecursion},
-    expr::expr::{AggregateFunction, Between, BinaryExpr, Expr, Like, Sort},
-};
 use anyhow::Result;
 
 use super::logical_plan::LogicalPlan;
+use crate::common::tree_node::{TreeNode, VisitRecursion};
+use crate::expr::expr::{AggregateFunction, Between, BinaryExpr, Expr, Like, Sort};
 
 impl TreeNode for Expr {
     fn apply_children<F>(&self, op: &mut F) -> Result<VisitRecursion>
@@ -207,7 +205,8 @@ impl TreeNode for LogicalPlan {
         Ok(VisitRecursion::Continue)
     }
 
-    /// actually since for now we did not support subquery, can use default impl. no need here. same next for visit
+    /// actually since for now we did not support subquery, can use default impl. no need here. same
+    /// next for visit
     fn apply<F>(&self, op: &mut F) -> Result<VisitRecursion>
     where
         F: FnMut(&Self) -> Result<VisitRecursion>,

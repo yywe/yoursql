@@ -1,15 +1,13 @@
-use crate::{
-    common::{
-        column::Column,
-        types::{DataType, DataValue},
-    },
-    expr_vec_fmt,
-};
-use anyhow::{anyhow, Result};
 use std::collections::HashSet;
 
+use anyhow::{anyhow, Result};
+
 use super::type_coercion::{coerce_types, NUMERICS};
-use crate::expr::{type_coercion::signature, utils::extract_columns_from_expr};
+use crate::common::column::Column;
+use crate::common::types::{DataType, DataValue};
+use crate::expr::type_coercion::signature;
+use crate::expr::utils::extract_columns_from_expr;
+use crate::expr_vec_fmt;
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Expr {
     Alias(Box<Expr>, String),
@@ -545,7 +543,7 @@ fn fmt_function(
 
 #[macro_export]
 macro_rules! expr_vec_fmt {
-    ($ARRAY: expr) => {
+    ($ARRAY:expr) => {
         $ARRAY
             .iter()
             .map(|e| format!("{e}"))

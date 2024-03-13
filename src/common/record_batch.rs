@@ -1,7 +1,9 @@
+use std::sync::Arc;
+
+use anyhow::{Context, Result};
+
 use super::schema::SchemaRef;
 use crate::common::types::DataValue;
-use anyhow::{Context, Result};
-use std::sync::Arc;
 
 #[derive(Clone, Debug)]
 pub struct RecordBatch {

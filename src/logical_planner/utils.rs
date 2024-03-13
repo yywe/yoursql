@@ -1,11 +1,12 @@
-use crate::expr::{
-    expr::Expr, expr_rewriter::clone_with_replacement, logical_plan::LogicalPlan,
-    utils::find_column_exprs,
-};
-use sqlparser::ast::Ident;
-//use std::collections::HashMap;
-use crate::common::column::Column;
 use anyhow::{anyhow, Result};
+use sqlparser::ast::Ident;
+
+// use std::collections::HashMap;
+use crate::common::column::Column;
+use crate::expr::expr::Expr;
+use crate::expr::expr_rewriter::clone_with_replacement;
+use crate::expr::logical_plan::LogicalPlan;
+use crate::expr::utils::find_column_exprs;
 
 pub fn normalize_ident(id: Ident) -> String {
     match id.quote_style {

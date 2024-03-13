@@ -1,21 +1,17 @@
-use crate::{
-    common::{
-        record_batch::RecordBatch,
-        schema::Schema,
-        types::{DataType, DataValue},
-    },
-    expr::{expr::Operator, type_coercion::get_result_type},
-};
+use std::any::Any;
+use std::fmt::Debug;
+use std::hash::{Hash, Hasher};
+use std::sync::Arc;
+
 use anyhow::{anyhow, Context, Result};
 use regex::Regex;
-use std::{
-    any::Any,
-    fmt::Debug,
-    hash::{Hash, Hasher},
-    sync::Arc,
-};
 
 use super::PhysicalExpr;
+use crate::common::record_batch::RecordBatch;
+use crate::common::schema::Schema;
+use crate::common::types::{DataType, DataValue};
+use crate::expr::expr::Operator;
+use crate::expr::type_coercion::get_result_type;
 
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub struct Literal {
@@ -551,7 +547,6 @@ impl PartialEq<dyn Any> for LikeExpr {
 /// simple like implemenatation based on regular expression (solution comes from toydb)
 /// in the case of apache datafusion, like is based on
 /// https://github.com/apache/arrow-rs/blob/master/arrow-string/src/like.rs
-///
 fn simple_like(value: &String, pattern: &String, case_sensitive: bool) -> Result<DataValue> {
     let (value, pattern) = if case_sensitive == false {
         (value.to_lowercase(), pattern.to_lowercase())
@@ -1148,9 +1143,10 @@ pub fn down_cast_any_ref(any: &dyn Any) -> &dyn Any {
 
 #[cfg(test)]
 mod test {
+    use std::collections::HashMap;
+
     use super::*;
     use crate::common::schema::Field;
-    use std::collections::HashMap;
     fn get_test_record_batch() -> RecordBatch {
         let schema = Schema::new(
             vec![

@@ -1,4 +1,5 @@
-use crate::{common::types::DataValue, expr::expr::Expr};
+use crate::common::types::DataValue;
+use crate::expr::expr::Expr;
 pub trait Literal {
     fn lit(&self) -> Expr;
 }
@@ -37,7 +38,7 @@ impl Literal for &[u8] {
 }
 
 macro_rules! make_literal {
-    ($TYPE: ty, $SCALAR: ident, $DOC: expr) => {
+    ($TYPE:ty, $SCALAR:ident, $DOC:expr) => {
         #[doc=$DOC]
         impl Literal for $TYPE {
             fn lit(&self) -> Expr {

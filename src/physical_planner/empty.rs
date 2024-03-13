@@ -1,15 +1,15 @@
-use super::memory::MemoryStream;
-use crate::{
-    common::{
-        record_batch::RecordBatch,
-        schema::{Field, Schema, SchemaRef},
-        types::{DataType, DataValue},
-    },
-    physical_planner::{ExecutionPlan, SendableRecordBatchStream},
-    session::SessionState,
-};
+use std::any::Any;
+use std::collections::HashMap;
+use std::sync::Arc;
+
 use anyhow::Result;
-use std::{any::Any, collections::HashMap, sync::Arc};
+
+use super::memory::MemoryStream;
+use crate::common::record_batch::RecordBatch;
+use crate::common::schema::{Field, Schema, SchemaRef};
+use crate::common::types::{DataType, DataValue};
+use crate::physical_planner::{ExecutionPlan, SendableRecordBatchStream};
+use crate::session::SessionState;
 
 #[derive(Debug)]
 pub struct EmptyExec {

@@ -7,3 +7,4 @@ pub mod physical_expr;
 pub mod physical_planner;
 pub mod session;
 pub mod storage;
+pub mod test;

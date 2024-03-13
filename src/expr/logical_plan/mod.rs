@@ -1,23 +1,23 @@
 pub mod builder;
 
-use crate::{
-    common::{
-        column::Column,
-        schema::{Field, Schema, SchemaRef, EMPTY_SCHEMA_REF},
-        table_reference::OwnedTableReference,
-        tree_node::{TreeNode, TreeNodeVisitor, VisitRecursion},
-        types::DataType,
-    },
-    expr::{expr::Expr, utils::from_plan},
-    storage::Table,
-};
+use std::collections::HashSet;
+use std::fmt::Display;
+use std::hash::Hash;
+use std::sync::Arc;
+
 use anyhow::{anyhow, Result};
-use std::{collections::HashSet, fmt::Display, hash::Hash, sync::Arc};
 
 use self::builder::build_join_schema;
-
 use super::expr_schema::{exprlist_to_fields, ExprToSchema};
+use crate::common::column::Column;
+use crate::common::schema::{Field, Schema, SchemaRef, EMPTY_SCHEMA_REF};
+use crate::common::table_reference::OwnedTableReference;
+use crate::common::tree_node::{TreeNode, TreeNodeVisitor, VisitRecursion};
+use crate::common::types::DataType;
+use crate::expr::expr::Expr;
+use crate::expr::utils::from_plan;
 use crate::expr_vec_fmt;
+use crate::storage::Table;
 
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub enum LogicalPlan {
@@ -97,7 +97,7 @@ pub struct Join {
 }
 
 impl Join {
-    ///create new join based on original join, left and right has projection columns
+    /// create new join based on original join, left and right has projection columns
     pub fn try_new_with_project_input(
         original: &LogicalPlan,
         left: Arc<LogicalPlan>,
@@ -636,7 +636,7 @@ impl<'a, 'b> TreeNodeVisitor for IndentVisitor<'a, 'b> {
     type N = LogicalPlan;
     fn pre_visit(&mut self, plan: &LogicalPlan) -> Result<VisitRecursion> {
         if self.indent > 0 {
-            writeln!(self.f)?; //just write a new line
+            writeln!(self.f)?; // just write a new line
         }
         write!(self.f, "{:indent$}", "", indent = self.indent * 2)?; // write some tabs
         write!(self.f, "{}", plan.display())?;
@@ -695,21 +695,17 @@ impl std::fmt::Debug for LogicalPlan {
 
 #[cfg(test)]
 mod test {
+    use std::collections::HashMap;
+    use std::sync::Arc;
+
     use super::*;
-    use crate::{
-        common::{
-            schema::{Field, Schema},
-            table_reference::TableReference,
-            types::{DataType, DataValue},
-        },
-        expr::{
-            expr::Sort,
-            logical_plan::builder::LogicalPlanBuilder,
-            utils::{col, min},
-        },
-        storage::empty::EmptyTable,
-    };
-    use std::{collections::HashMap, sync::Arc};
+    use crate::common::schema::{Field, Schema};
+    use crate::common::table_reference::TableReference;
+    use crate::common::types::{DataType, DataValue};
+    use crate::expr::expr::Sort;
+    use crate::expr::logical_plan::builder::LogicalPlanBuilder;
+    use crate::expr::utils::{col, min};
+    use crate::storage::empty::EmptyTable;
 
     fn test_table_scan(
         name: impl Into<OwnedTableReference>,
@@ -744,7 +740,7 @@ mod test {
         builder = builder.project(vec![col("id")])?;
         let plan = builder.build().unwrap();
         let _visplan = format!("{plan:?}");
-        //println!("{}",_visplan);
+        // println!("{}",_visplan);
         Ok(())
     }
 
@@ -767,7 +763,8 @@ mod test {
 
         // upper case
         let builder = test_table_scan("EMPLOYEE", &employee_schema(), None).unwrap();
-        // when make table reference from string, it will normalize the ident, parse_identifiers_normalized
+        // when make table reference from string, it will normalize the ident,
+        // parse_identifiers_normalized
         let expected_schema = Schema::try_from_qualified_schema(
             TableReference::Bare {
                 table: "employee".into(),
@@ -795,7 +792,7 @@ mod test {
             .project(vec![col("state"), col("min_salary")])?
             .limit(2, Some(10))?;
         let _plan = builder.build()?;
-        //println!("{:?}", _plan);
+        // println!("{:?}", _plan);
         Ok(())
     }
 
@@ -816,7 +813,7 @@ mod test {
             }),
         ])?;
         let _plan = builder.build()?;
-        //println!("{:?}", _plan);
+        // println!("{:?}", _plan);
         Ok(())
     }
 
@@ -832,7 +829,7 @@ mod test {
             .project(vec![Expr::Wildcard])?
             .build()?;
 
-        //println!("{:?}", _plan);
+        // println!("{:?}", _plan);
         Ok(())
     }
 }

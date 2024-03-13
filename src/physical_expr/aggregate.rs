@@ -1,20 +1,17 @@
-use super::physical_expr::down_cast_any_ref;
-use crate::{
-    common::{
-        schema::{Field, Schema},
-        types::DataType,
-    },
-    expr::expr::AggregateFunctionType,
-    physical_expr::{
-        accumulator::{
-            Accumulator, AvgAccumulator, CountAccumulator, MaxAccumulator, MinAccumulator,
-            SumAccumulator,
-        },
-        PhysicalExpr,
-    },
-};
+use std::any::Any;
+use std::fmt::Debug;
+use std::sync::Arc;
+
 use anyhow::{anyhow, Result};
-use std::{any::Any, fmt::Debug, sync::Arc};
+
+use super::physical_expr::down_cast_any_ref;
+use crate::common::schema::{Field, Schema};
+use crate::common::types::DataType;
+use crate::expr::expr::AggregateFunctionType;
+use crate::physical_expr::accumulator::{
+    Accumulator, AvgAccumulator, CountAccumulator, MaxAccumulator, MinAccumulator, SumAccumulator,
+};
+use crate::physical_expr::PhysicalExpr;
 
 pub trait AggregateExpr: Send + Sync + Debug + PartialEq<dyn Any> {
     fn as_any(&self) -> &dyn Any;
@@ -343,8 +340,8 @@ pub fn create_aggregate_expr_impl(
     })
 }
 
-///very simple implementation here, should consider input type and use max type
-///todo
+/// very simple implementation here, should consider input type and use max type
+/// todo
 pub fn return_type(fun: &AggregateFunctionType, _inpu_expr_types: &[DataType]) -> Result<DataType> {
     Ok(match fun {
         AggregateFunctionType::Avg => DataType::Float64,

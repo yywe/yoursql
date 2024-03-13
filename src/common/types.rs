@@ -1,7 +1,9 @@
-use anyhow::anyhow;
-use chrono::{prelude::DateTime, Utc};
-use serde::{Deserialize, Serialize};
 use std::time::{Duration, UNIX_EPOCH};
+
+use anyhow::anyhow;
+use chrono::prelude::DateTime;
+use chrono::Utc;
+use serde::{Deserialize, Serialize};
 #[derive(Serialize, Deserialize, Clone, PartialEq, PartialOrd)]
 pub enum DataValue {
     Null,
@@ -36,7 +38,7 @@ pub enum DataValue {
 impl Eq for DataValue {}
 
 macro_rules! format_option {
-    ($F: expr, $EXPR: expr) => {
+    ($F:expr, $EXPR:expr) => {
         match $EXPR {
             Some(e) => write!($F, "{e}"),
             None => write!($F, "NULL"),

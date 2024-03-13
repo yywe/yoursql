@@ -1,0 +1,6 @@
+statement ok
+create table t1(id int, name varchar(20))
+
+statement ok
+insert into t1 values (1,'hello'), (2, 'world')
+
