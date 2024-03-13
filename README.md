@@ -5,19 +5,65 @@ Yoursql is a learning project to explore how SQL query engine is implemented in 
 Currently DDL and DML implementation is very minimal, just support creating table and inserting data (In-Memory). They are simply provided so we can insert data and play with it. Also, there are no query optimizers yet.
 
 # Setup and Run
-You will need Rust environment. Then clone the repo and start from test cases in: src/session/mod.rs, e.g, to run a simple SQL:
 
+## Run as a Server
 ```console
- cargo test --package yoursql --lib -- test_physical_planner --nocapture
- running 1 test
-the input sql: SELECT id, address from testdb.student where name = 'Andy'
-todo: implement logical optimizer
-todo: implement physical optimizer here
-id|address
-2|121 hunter street
-test session::test::test_physical_planner ... ok
+cargo run --package yoursql --bin server
+   Compiling yoursql v0.2.0 (/home/yy/Learning/Database/yoursql)
+    Finished dev [unoptimized + debuginfo] target(s) in 4.27s
+     Running `target/debug/server`
+```
+In another windows, connect with mysql:
+```
+mysql -h 127.0.0.1
+Welcome to the MySQL monitor.  Commands end with ; or \g.
+Your MySQL connection id is 8
+Server version: 5.1.10-alpha-msql-proxy
 
-test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 16 filtered out; finished in 0.00s
+Copyright (c) 2000, 2023, Oracle and/or its affiliates.
+
+Oracle is a registered trademark of Oracle Corporation and/or its
+affiliates. Other names may be trademarks of their respective
+owners.
+
+Type 'help;' or '\h' for help. Type '\c' to clear the current input statement.
+
+mysql> create table t1(id int, name varchar(30), age int);
+Query OK, 0 rows affected (0.00 sec)
+
+mysql> insert into t1 values (1, 'hello', 20), (2, 'world', 30), (10,'database', 70);
+Query OK, 3 rows affected (0.00 sec)
+
+mysql> select * from t1 where age >25 order by age desc;
++----+----------+-----+
+| id | name     | age |
++----+----------+-----+
+| 10 | database | 70  |
+| 2  | world    | 30  |
++----+----------+-----+
+2 rows in set (0.00 sec)
+
+mysql>
+```
+
+## Run as an imbeded database
+```console
+cargo run --package yoursql --bin memdb
+    Finished dev [unoptimized + debuginfo] target(s) in 0.12s
+     Running `target/debug/memdb`
+Welcome to yoursql, please type in SQL statment, or ? to show help.
+yoursql>
+```
+## Run sqllogictest
+```console
+cargo test --package yoursql --lib -- test::test::sqllogicatest
+    Finished test [unoptimized + debuginfo] target(s) in 0.12s
+     Running unittests src/lib.rs (target/debug/deps/yoursql-9653f55cb9053950)
+
+running 1 test
+test test::test::sqllogicatest ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 23 filtered out; finished in 0.01s
 ```
 
 
@@ -32,7 +78,6 @@ test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 16 filtered out; fin
 - [ ] Logical Optimizer
 - [ ] Physical Optimizer
 - [ ] Storage Layer / Transaction
-- [ ] Integrate Query Engine into Server based on https://github.com/datafuselabs/opensrv
 
 # References
 While learning database implemenations, I have investigated some other database projects in Rust: 
@@ -41,10 +86,7 @@ While learning database implemenations, I have investigated some other database 
 * [databend](https://github.com/datafuselabs/databend): the query engine of databend is interesting, it is not a classic volcano model. The query plan is converted into pipline, and the pipeline is connected as a graph. The execution is driven by the state machine with explicit scheduling. The execution engine is inspired from clickhouse.
 * [risingwave](https://github.com/risingwavelabs/risingwave): risingwave is a stream database, but it can be used as a regular batch database as well. risingwave execution engine heavily used RPC, the physical plan is split to fragment and sent to different nodes for distributed execution. I assume most of the concepts (e.g, fragment) comes from Presto.
 
-# Future Learning/Investigation
+# Future Learning/Investigation Direction
 - [ ] learn databend and make a pipelined engine
 - [ ] learn risingwave and make a distributed fragmented execution engine
-- [ ] is it possible to compile the plan to native code?
-
-# Miscellaneous
-Original PoC branch: https://github.com/yywe/yoursql/tree/main
+- [ ] is it possible to compile the plan to native machine code?
