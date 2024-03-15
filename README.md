@@ -86,6 +86,15 @@ While learning database implemenations, I have investigated some other database 
 * [databend](https://github.com/datafuselabs/databend): the query engine of databend is interesting, it is not a classic volcano model. The query plan is converted into pipline, and the pipeline is connected as a graph. The execution is driven by the state machine with explicit scheduling. The execution engine is inspired from clickhouse.
 * [risingwave](https://github.com/risingwavelabs/risingwave): risingwave is a stream database, but it can be used as a regular batch database as well. risingwave execution engine heavily used RPC, the physical plan is split to fragment and sent to different nodes for distributed execution. I assume most of the concepts (e.g, fragment) comes from Presto.
 
+# Note
+Developing a DBMS requires a huge amount of work. I'm still curious how excellant DBMS products grow from the 1st line of code to millions lines of code. Every time when I look at some database code repo, the amount of code is overwhelming. Although currently yoursql includes around 10,000 lines of code, the branches recorded how they grow to the current status:
+* MILESTONE1-scaffold: this is very first step, setup the folder organization and memory table
+* ...
+* MILESTONE11-server: this is the last step for a minimal working toy, integrating the query engine with a server so we can use mysql client to send queries.
+
+By follow the milestones, it is easier to undersand without worrying about overwhelmed.
+
+
 # Future Learning/Investigation Direction
 - [ ] learn databend and make a pipelined engine
 - [ ] learn risingwave and make a distributed fragmented execution engine
