@@ -63,7 +63,7 @@ mod test {
 
     use super::*;
     #[test]
-    fn sqllogicatest() {
+    fn sqllogictest() {
         let tests_dir = env::current_dir().unwrap().join("tests");
         let mut tscripts = Vec::new();
         if let Ok(entries) = fs::read_dir(&tests_dir) {

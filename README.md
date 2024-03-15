@@ -14,7 +14,7 @@ cargo run --package yoursql --bin server
      Running `target/debug/server`
 ```
 In another windows, connect with mysql:
-```
+```console
 mysql -h 127.0.0.1
 Welcome to the MySQL monitor.  Commands end with ; or \g.
 Your MySQL connection id is 8
@@ -56,12 +56,12 @@ yoursql>
 ```
 ## Run sqllogictest
 ```console
-cargo test --package yoursql --lib -- test::test::sqllogicatest
+cargo test --package yoursql --lib -- test::test::sqllogictest
     Finished test [unoptimized + debuginfo] target(s) in 0.12s
      Running unittests src/lib.rs (target/debug/deps/yoursql-9653f55cb9053950)
 
 running 1 test
-test test::test::sqllogicatest ... ok
+test test::test::sqllogictest ... ok
 
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 23 filtered out; finished in 0.01s
 ```
