@@ -13,6 +13,7 @@ pub mod sort;
 pub mod utils;
 pub mod values;
 
+use log::info;
 use std::any::Any;
 use std::fmt::Debug;
 use std::pin::Pin;
@@ -134,7 +135,7 @@ impl DefaultPhysicalPlanner {
         plan: Arc<dyn ExecutionPlan>,
         _session_state: &SessionState,
     ) -> Result<Arc<dyn ExecutionPlan>> {
-        println!("todo: implement physical optimizer here");
+        info!("todo: implement physical optimizer here");
         Ok(plan)
     }
 }

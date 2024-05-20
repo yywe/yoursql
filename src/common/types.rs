@@ -1,6 +1,6 @@
 use std::time::{Duration, UNIX_EPOCH};
 
-use anyhow::anyhow;
+use anyhow::{anyhow, Result};
 use chrono::prelude::DateTime;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
@@ -356,14 +356,114 @@ impl TryFrom<&sqlparser::ast::DataType> for DataType {
             UnsignedTinyInt(_) => Ok(DataType::UInt8),
             SmallInt(_) => Ok(DataType::Int16),
             UnsignedSmallInt(_) => Ok(DataType::UInt16),
-            Int(_) => Ok(DataType::Int32),
-            UnsignedInt(_) => Ok(DataType::UInt32),
+            Int(_) => Ok(DataType::Int64),
+            UnsignedInt(_) => Ok(DataType::UInt64),
             BigInt(_) => Ok(DataType::Int64),
             UnsignedBigInt(_) => Ok(DataType::UInt64),
             Binary(_) => Ok(DataType::Binary),
             Date => Ok(DataType::Date64),
             Datetime(_) | Time(..) | Timestamp(..) => Ok(DataType::Time32Millisecond),
             _ => Err(anyhow!(format!("Cannot convert datatype {}", value))),
+        }
+    }
+}
+
+
+/// Add support to generate DataValue from native Rust primary types and vice versa
+macro_rules! impl_from_native  {
+    ($ty: ty, $vt: tt) => {
+        impl From<$ty> for DataValue {
+            fn from(value: $ty) -> Self {
+                DataValue::$vt(Some(value))
+            }
+        }
+        impl From<Option<$ty>> for DataValue {
+            fn from(value: Option<$ty>) -> Self {
+                DataValue::$vt(value)
+            }
+        }
+    };
+}
+
+impl_from_native!(bool, Boolean);
+impl_from_native!(f32, Float32);
+impl_from_native!(f64, Float64);
+impl_from_native!(i8, Int8);
+impl_from_native!(i16, Int16);
+impl_from_native!(i32, Int32);
+impl_from_native!(i64, Int64);
+impl_from_native!(u8, UInt8);
+impl_from_native!(u16, UInt16);
+impl_from_native!(u32, UInt32);
+impl_from_native!(u64, UInt64);
+
+impl From<String> for DataValue {
+    fn from(value: String) -> Self {
+        DataValue::Utf8(Some(value))
+    }
+}
+
+// From DataValue to inner native Rust types
+macro_rules! impl_try_from {
+    ($dt: ident, $NATIVE: ident) => {
+        impl TryFrom<DataValue> for $NATIVE {
+            type Error = anyhow::Error;
+            fn try_from(value: DataValue) -> Result<Self> {
+                match value {
+                    DataValue::$dt(Some(v)) => Ok(v),
+                    _ => Err(anyhow!("Cannot convert DataValue to {}", stringify!($NATIVE))),
+                }
+            }
+        }
+    };
+}
+
+impl_try_from!(Int8, i8);
+impl_try_from!(Int16, i16);
+impl_try_from!(UInt8, u8);
+impl_try_from!(UInt16, u16);
+impl_try_from!(UInt32, u32);
+impl_try_from!(UInt64, u64);
+impl_try_from!(Float32, f32);
+impl_try_from!(Float64, f64);
+impl_try_from!(Boolean, bool);
+
+impl TryFrom<DataValue> for i32 {
+    type Error = anyhow::Error;
+    fn try_from(value: DataValue) -> Result<Self> {
+        match value {
+            DataValue::Int32(Some(v)) | DataValue::Date32(Some(v)) | DataValue::Time32Millisecond(Some(v)) | DataValue::Time32Second(Some(v)) => Ok(v),
+            _ => Err(anyhow!("Cannot convert DataValue to i32")),
+        }
+    }
+}
+
+impl TryFrom<DataValue> for i64 {
+    type Error = anyhow::Error;
+    fn try_from(value: DataValue) -> Result<Self> {
+        match value {
+            DataValue::Int64(Some(v)) | DataValue::Date64(Some(v)) | DataValue::Time64Microsecond(Some(v)) | DataValue::Time64Nanosecond(Some(v)) => Ok(v),
+            _ => Err(anyhow!("Cannot convert DataValue to i64")),
+        }
+    }
+}
+
+impl TryFrom<DataValue> for String {
+    type Error = anyhow::Error;
+    fn try_from(value: DataValue) -> Result<Self> {
+        match value {
+            DataValue::Utf8(Some(v)) => Ok(v),
+            _ => Err(anyhow!("Cannot convert DataValue to String")),
+        }
+    }
+}
+
+impl TryFrom<DataValue> for Vec<u8> {
+    type Error = anyhow::Error;
+    fn try_from(value: DataValue) -> Result<Self> {
+        match value {
+            DataValue::Binary(Some(v)) => Ok(v),
+            _ => Err(anyhow!("Cannot convert DataValue to Vec<u8>")),
         }
     }
 }

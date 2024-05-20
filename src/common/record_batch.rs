@@ -5,7 +5,7 @@ use anyhow::{Context, Result};
 use super::schema::SchemaRef;
 use crate::common::types::DataValue;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct RecordBatch {
     pub schema: SchemaRef,
     pub rows: Vec<Vec<DataValue>>,

@@ -10,6 +10,7 @@ use crate::storage::Table;
 pub trait DB: Send + Sync {
     fn table_names(&self) -> Vec<String>;
     async fn get_table(&self, name: &str) -> Option<Arc<dyn Table>>;
+    fn get_table_sync(&self, name: &str) -> Option<Arc<dyn Table>>;
     fn table_exist(&self, name: &str) -> bool;
     fn register_table(&self, name: String, table: Arc<dyn Table>)
         -> Result<Option<Arc<dyn Table>>>;
@@ -43,6 +44,9 @@ impl DB for MemoryDB {
             .collect()
     }
     async fn get_table(&self, name: &str) -> Option<Arc<dyn Table>> {
+        self.tables.get(name).map(|table| table.value().clone())
+    }
+    fn get_table_sync(&self, name: &str) -> Option<Arc<dyn Table>> {
         self.tables.get(name).map(|table| table.value().clone())
     }
     fn table_exist(&self, name: &str) -> bool {

@@ -2,6 +2,7 @@ use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::ops::ControlFlow;
 use std::sync::Arc;
+use log::info;
 
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
@@ -149,7 +150,7 @@ impl SessionState {
     /// logical optimization
     pub fn logical_optimize(&self, plan: &LogicalPlan) -> Result<LogicalPlan> {
         // todo: impl logical optimize
-        println!("todo: implement logical optimizer");
+        info!("todo: implement logical optimizer");
         Ok(plan.clone())
     }
 
