@@ -15,7 +15,7 @@ use inkwell::module::Module;
 use inkwell::AddressSpace;
 use inkwell::builder::Builder;
 use inkwell::values::BasicValue;
-use llvm_sys::core::LLVMGetTypeKind;
+//use llvm_sys::core::LLVMGetTypeKind;
 use crate::common::schema::Schema;
 use crate::common::types::DataType;
 use inkwell::types::{StructType, BasicTypeEnum, PointerType, VoidType};

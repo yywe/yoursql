@@ -3,3 +3,6 @@
 /temp*
 /mdb
 note.txt
+.DS_Store
+.vscode/
+src/.DS_Store
