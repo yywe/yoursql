@@ -35,3 +35,6 @@ inkwell = { version = "0.4.0", features = ["llvm15-0"] } # also note the llvm ve
 libc = "0.2"
 log = "0.4"
 env_logger = "0.8"
+
+[build-dependencies]
+which = "4.2.2"
