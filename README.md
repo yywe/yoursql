@@ -99,3 +99,15 @@ By follow the milestones, it is easier to undersand without worrying about overw
 - [ ] learn databend and make a pipelined engine
 - [ ] learn risingwave and make a distributed fragmented execution engine
 - [ ] is it possible to compile the plan to native machine code?
+
+# Note
+- we use LLVM_SYS_150_PREFIX for better compatiblity, add below to .vscode/settings.json for vscode to better analyze the code
+```json
+{
+   "rust-analyzer.cargo.extraEnv": {
+        "LLVM_SYS_150_PREFIX": "/path/to/clangllvm"  
+    },
+}
+```
+
+- for newer version macos, need to do: export RUSTFLAGS="-Clink-arg=-fuse-ld=/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/ld-classic" to bypass issue: https://github.com/rust-lang/rust/issues/113783
