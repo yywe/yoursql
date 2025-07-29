@@ -31,10 +31,11 @@ uuid = { version="1.0", features=["v4"] }
 regex = "1.10.2"
 lazy_static = "1.4.0"
 sqllogictest = "0.13.0"
-inkwell = { version = "0.4.0", features = ["llvm15-0"] } # also note the llvm version in build.rs, for linux used llvm16-0
+inkwell = { version = "0.6.0", features = ["llvm15-0"] } # also note the llvm version in build.rs, for linux used llvm16-0
 libc = "0.2"
 log = "0.4"
 env_logger = "0.8"
+ctor = "0.4.3"
 
 [build-dependencies]
 which = "4.2.2"

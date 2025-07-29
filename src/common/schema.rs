@@ -514,8 +514,20 @@ impl std::fmt::Display for Schema {
 }
 
 #[cfg(test)]
-mod test {
+pub mod test {
     use super::*;
+
+    /// Helper to quickly create a Schema from a slice of DataType.
+    /// Column names will be col1, col2, ... and all columns are not nullable.
+    pub fn make_schema(types: &[DataType]) -> Schema {
+        let fields: Vec<Field> = types
+            .iter()
+            .enumerate()
+            .map(|(i, ty)| Field::new(&format!("col{}", i + 1), ty.clone(), false, None))
+            .collect();
+        Schema::new(fields, std::collections::HashMap::new())
+    }
+
     #[test]
     fn test_field_equal() {
         let qualifier = OwnedTableReference::Full {

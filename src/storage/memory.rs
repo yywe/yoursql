@@ -15,7 +15,7 @@ use crate::storage::Table;
 #[derive(Debug)]
 pub struct MemTable {
     schema: SchemaRef,
-    batches: Mutex<Vec<RecordBatch>>,
+    pub batches: Mutex<Vec<RecordBatch>>,// change to pub for simplicity for the llvm engine
 }
 
 impl MemTable {
@@ -33,6 +33,9 @@ impl MemTable {
             schema: schema,
             batches: Mutex::new(batches),
         })
+    }
+    pub fn total_rows(&self) -> usize {
+        self.batches.lock().unwrap().iter().map(|b| b.num_rows()).sum()
     }
 }
 

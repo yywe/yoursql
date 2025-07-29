@@ -1,1094 +1,716 @@
-pub mod serialization;
-use inkwell::values::{BasicMetadataValueEnum, PointerValue, BasicValueEnum};
-use anyhow::anyhow;
-use crate::compiler::serialization::serialize_batch;
-use tokio::runtime::Runtime;
-use futures::TryStreamExt;
-use std::ffi::CString;
+pub mod buffering_consumer;
+pub mod debug;
+pub mod lang;
+pub mod operator;
+pub mod outdated;
+pub mod proxy;
+pub mod query_state;
+pub mod types;
+use std::cell::{Ref, RefCell};
 use std::collections::HashMap;
-use std::ffi::CStr;
-use inkwell::values::IntValue;
+use std::rc::Rc;
+
+use anyhow::Result;
+use buffering_consumer::BufferingConsumer;
+use inkwell::builder::Builder;
 use inkwell::context::Context;
-use inkwell::OptimizationLevel;
 use inkwell::execution_engine::{ExecutionEngine, JitFunction};
 use inkwell::module::Module;
-use inkwell::AddressSpace;
-use inkwell::builder::Builder;
-use inkwell::values::BasicValue;
-//use llvm_sys::core::LLVMGetTypeKind;
-use crate::common::schema::Schema;
-use crate::common::types::DataType;
-use inkwell::types::{StructType, BasicTypeEnum, PointerType, VoidType};
-use anyhow::Result;
+use inkwell::types::{FloatType, IntType, PointerType, StructType, VoidType};
+use inkwell::values::{BasicValueEnum, FunctionValue};
+use inkwell::{AddressSpace, OptimizationLevel};
+use lang::FunctionBuilder;
+use log::debug;
+
 use crate::common::record_batch::RecordBatch;
+use crate::compiler::operator::filter_translator::FilterTranslator;
+use crate::compiler::operator::projection_translator::ProjectionTranslator;
+use crate::compiler::operator::table_scan_translator::TableScanTranslator;
+use crate::compiler::proxy::FunctionArguments;
+use crate::compiler::query_state::QueryState;
+use crate::compiler::types::{Row, RowBatch};
 use crate::expr::logical_plan::LogicalPlan;
-use crate::session::{SessionState, SessionContext};
-use crate::common::types::DataValue;
-use crate::common::schema::Field;
-use std::sync::Arc;
-use inkwell::module::Linkage;
-use crate::compiler::serialization::deserialize_batch;
-use crate::compiler::serialization::load_table_data;
-use inkwell::types::IntType;
+use crate::session::SessionContext;
 
-
-
-// define the function type of the compiled query, it takes raw pointer of session state
-// and return a raw pointer of the result, this is needed since the LLVM gear will need to 
-// interact with the Rust runtime. <TODO: change this later, we should just need one pointer>
-type QueryPlan = unsafe extern "C" fn(*const i8,  *const i8, *const i8) -> *const i8;
-
-/// define the batch in LLVM IR
-pub struct LLVMRowBatch<'ctx> {
-    pub size: IntValue<'ctx>, // the total size of the memory block
-    pub row_ptrs: PointerValue<'ctx>, // array, pointers to rows
-    pub num_rows: IntValue<'ctx>, // total number of rows
-}
-
-pub struct LLVMValue<'ctx> {
-    pub value: BasicValueEnum<'ctx>, // the value of the row
-    pub data_type: DataType, // the data type of the value
-    pub size: Option<IntValue<'ctx>>, // the size of the value (for string, include the null terminator)
-    pub null_rep: IntValue<'ctx>, // the null representation of the value
-}
-
-pub struct LLVMRow<'ctx> {
-    pub values: Vec<LLVMValue<'ctx>>, // the value of the row
-    pub schema: Arc<Schema>, // the schema of the row
-}
-
-pub struct ResultCollector {
-    pub schema: Option<Arc<Schema>>,
-    pub buffer: Vec<*const i8>
-}
-
-//TODO:  we need to figure out how to bind the schema. now just pending.
-impl ResultCollector {
-    pub fn new() -> ResultCollector {
-        ResultCollector {
-            schema: None,
-            buffer: vec![]
-        }
-    }
-    pub fn collect(&mut self, ptr: *const i8) {
-        self.buffer.push(ptr);
-    }
-
-    pub fn get_result(&self) -> Result<RecordBatch> {
-        let schema = self.schema.as_ref().unwrap().clone();
-        let mut rows = vec![];
-        for ptr in self.buffer.iter() {
-
-            let ans_ptr = *ptr;
-            let size_slice = unsafe {std::slice::from_raw_parts(ans_ptr as *const u8, 4)};
-            println!("the raw bytes at {:?} are: {:?}",ans_ptr,  size_slice);
-
-            let len=u32::from_le_bytes(size_slice.to_owned().try_into().unwrap());
-            println!("the size of the data: {} at {:?}", len, ans_ptr);
-            if len == 0 {
-                continue;
-            }
-            
-            let data: &[u8] = unsafe { std::slice::from_raw_parts(ans_ptr  as *const u8, len as usize) };
-        
-            let batch = deserialize_batch(schema.clone(), data)?;
-
-            //unsafe {
-            //    libc::free(*ptr as *mut libc::c_void); //note this requires the memory allocated using malloc
-            //}
-            // add rows in batch to rows
-            for row in batch.rows.iter() {
-                rows.push(row.clone());
-            }
-            
-        }
-
-        Ok(RecordBatch {
-            schema,
-            rows
-        })
-
-    }
-}
-
-pub extern "C" fn deliver_row(ptr: *const i8, collector: *mut i8) {
-    let collector = unsafe {&mut *(collector as *mut ResultCollector)};
-    collector.collect(ptr);
-}
-
+#[allow(dead_code)]
+type VoidVoidFnType = unsafe extern "C" fn();
+#[allow(dead_code)]
+type VoidInt32FnType = unsafe extern "C" fn() -> i32;
+#[allow(dead_code)]
+type Int32Int32FnType = unsafe extern "C" fn(i32) -> i32;
+#[allow(dead_code)]
+type PtrPtrVoidFnType = unsafe extern "C" fn(*const i8, *const i8);
+#[allow(dead_code)]
+type PtrVoidFnType = unsafe extern "C" fn(*const i8);
 
 pub struct TypeWrapper<'ctx> {
     pub i32type: IntType<'ctx>,
     pub i64type: IntType<'ctx>,
     pub i8type: IntType<'ctx>,
-    pub i8ptrtype: PointerType<'ctx>,
-    pub i32ptrtype: PointerType<'ctx>,
-    pub i64ptrtype: PointerType<'ctx>,
     pub i16type: IntType<'ctx>,
-    pub i16ptrtype: PointerType<'ctx>,
+    pub f32type: FloatType<'ctx>,
+    pub f64type: FloatType<'ctx>,
     pub voidtype: VoidType<'ctx>,
-
+    pub ptrtype: PointerType<'ctx>,
 }
 
-pub trait OperatorTranslator<'ctx> {
-    fn produce(&self) -> Result<()>;
-    fn consume(&self, row: &LLVMRow<'ctx>) -> Result<()>;
-}
+// TODO: Rc and RefCell are heavily used, we should use a Rustacian design to avoid its usage
 
-pub struct Pipeline<'ctx> {
-    pub operators: Vec<Box<dyn OperatorTranslator<'ctx>>>,
-}
-
-
-pub struct QueryCompiler<'ctx> {
+/// Note for the function_builders:
+/// The function builder stack follows a stack discipline pattern where:
+/// new_and_push_to_stack pushes a new function builder onto the stack
+/// pop removes and returns the top function builder from the stack
+/// These must be properly paired to avoid stack corruption
+pub struct CodeGen<'ctx> {
     pub context: &'ctx Context,
     pub module: Module<'ctx>,
     pub builder: Builder<'ctx>,
     pub engine: ExecutionEngine<'ctx>,
     pub types: TypeWrapper<'ctx>,
-
+    pub function_builders: RefCell<Vec<FunctionBuilder<'ctx>>>, /* RefCell caution, after use
+                                                                 * please drop immediately */
 }
 
-impl<'ctx> QueryCompiler<'ctx> {
-    pub fn new(context: &'ctx Context, name: &str) -> QueryCompiler<'ctx> {
+pub trait OperatorTranslator<'ctx> {
+    fn produce(&self, compilation_context: &CompilationContext<'ctx>) -> Result<()>;
+    fn consume<'a>(&self, context: &ConsumerContext<'a, 'ctx>, row: &Row<'a, 'ctx>) -> Result<()>;
+    // TODO: remove the consome_batch or rework, it may has issues
+    fn consume_batch<'a>(
+        &self,
+        context: &ConsumerContext<'a, 'ctx>,
+        batch: &RowBatch<'ctx>,
+    ) -> Result<()> {
+        batch.iterate(context.compilation_context.codegen.as_ref(), |row| {
+            self.consume(context, &row).unwrap(); // TODO: handle the error properly
+        });
+        Ok(())
+    }
+    fn get_plan(&self) -> &LogicalPlan;
+}
+
+pub struct Pipeline<'ctx> {
+    pub operators: Vec<Box<dyn OperatorTranslator<'ctx> + 'ctx>>,
+    // pub compilation_context: CompilationContextRef<'ctx>,
+    // pub current_op_index: RefCell<i32>,
+    pub current_op_index: i32,
+    pub id: usize, // unique id for the pipeline
+}
+
+pub struct CompilationContext<'ctx> {
+    pub codegen: CodeGenRef<'ctx>,
+    pub pipelines: Vec<Pipeline<'ctx>>,
+    pub execution_consumer: Rc<BufferingConsumer>,
+    pub query_state: Rc<RefCell<QueryState<'ctx>>>, /* RefCell caution, after use please drop
+                                                     * immediately */
+    // store (pipline_id, operator_index) instead of owned translators
+    pub op_translators: HashMap<LogicalPlan, (usize, usize)>,
+}
+
+// pub struct ConsumerContext<'ctx> {
+// pub compilation_context: CompilationContextRef<'ctx>,
+// pub pipeline_id: usize,
+// }
+
+pub struct ConsumerContext<'a, 'ctx> {
+    pub compilation_context: &'a CompilationContext<'ctx>,
+    pub pipeline_id: usize,
+    pub current_op_index: i32,
+}
+
+pub struct Query<'ctx> {
+    pub plan: LogicalPlan,
+    pub codegen: CodeGenRef<'ctx>,
+    pub state: Rc<RefCell<QueryState<'ctx>>>, // RefCell caution, after use please drop immediately
+    pub plan_func: Option<JitFunction<'ctx, PtrVoidFnType>>, // will be set when query compiled
+}
+
+/// this should be provide some runtime envrionment param like storage manager
+pub struct ExecutorContext<'a> {
+    // for each table in the query plan, we have a buffering to store the PrimTuple
+    // the key is the resolved table name in string format, which can be obtained by
+    // session state.resolve.resolve_table_ref(name).to_string();
+    pub table_source: HashMap<String, BufferingConsumer>,
+    pub session_context: &'a SessionContext,
+}
+
+impl<'ctx> Pipeline<'ctx> {
+    pub fn new(id: usize) -> Self {
+        Pipeline {
+            operators: Vec::new(),
+            current_op_index: -1, // no operator yet
+            id: id,               // pipline unique id
+        }
+    }
+    /// compile the operators in the pipeline into a function
+    /// body is the kick-off point for the pipeline execution
+    pub fn compile<'a, F>(
+        &self,
+        compilation_context: &'a CompilationContext<'ctx>,
+        body: F,
+    ) -> Result<()>
+    where
+        F: FnOnce(&mut ConsumerContext<'a, 'ctx>) -> Result<()>,
+    {
+        // get codegen
+        let codegen = compilation_context.codegen.as_ref();
+        let func_name = self.construct_pipline_func_name();
+
+        // Get the query state pointer (should be available from current function context)
+        let query_state_ptr = codegen.get_state();
+
+        // Compile the pipeline to a function
+        {
+            // Create the function builder for the pipeline function and push to stack
+            FunctionBuilder::new_and_push_to_stack(
+                codegen,
+                func_name.as_str(),
+                codegen.types.voidtype,
+                &[("query_state".to_owned(), codegen.types.ptrtype.into())],
+            );
+
+            let mut consumer_ctx = ConsumerContext::new(compilation_context, self.id);
+
+            // invoke the body to kick-off the code generation chain of translators
+            body(&mut consumer_ctx)?;
+
+            // Pop the function builder from stack and finish it
+            let mut curr_fn_builder = codegen
+                .function_builders
+                .borrow_mut()
+                .pop()
+                .expect("No function builder found");
+            curr_fn_builder.return_and_finish(codegen, None);
+
+            // save the FunctionValue of the pipeline function
+            // self.llvm_ir_func = codegen.module.//get_function(&func_name);
+        }
+
+        let llvm_ir_func = codegen.module.get_function(&func_name);
+
+        // assert the function is defined (not in native code but in llvm ir form)
+        assert!(llvm_ir_func.is_some(), "Pipeline function not defined yet");
+
+        codegen
+            .builder
+            .build_call(
+                llvm_ir_func.unwrap(),
+                &[query_state_ptr.into()],
+                "pipeline_call",
+            )
+            .unwrap();
+
+        Ok(())
+    }
+
+    pub fn construct_pipline_func_name(&self) -> String {
+        let mut parts = Vec::new();
+        parts.push(format!("pipeline{}", self.id));
+        // Iterate through operators in reverse order
+        for operator in self.operators.iter().rev() {
+            let plan = operator.get_plan();
+            let plan_type = plan.get_plan_enum_name();
+            // Convert to lowercase to match Peloton's StringUtil::Lower
+            parts.push(plan_type.to_lowercase());
+        }
+        // the last pipeline step for data (the 1st in the original order)
+        if self.id == 0 {
+            parts.push("output".to_string());
+        }
+        // Join with underscores
+        parts.join("_")
+    }
+
+    /// Move to the next step in this pipeline
+    /// Returns a reference to the next operator translator, or None if at the end
+    pub fn next_step(&mut self) -> Option<&Box<dyn OperatorTranslator<'ctx> + 'ctx>> {
+        if self.current_op_index >= 0 {
+            let op = self.operators.get(self.current_op_index as usize);
+            self.current_op_index -= 1;
+            op
+        } else {
+            None
+        }
+    }
+
+    pub fn get_current_op_index(&self) -> i32 {
+        self.current_op_index
+    }
+    /// Reset the pipeline index to the end (start of execution)
+    /// This should be called before starting pipeline execution
+    pub fn reset_to_start(&mut self) {
+        self.current_op_index = self.operators.len() as i32 - 1;
+    }
+
+    /// Add an operator to the pipeline
+    pub fn add_operator(&mut self, operator: Box<dyn OperatorTranslator<'ctx> + 'ctx>) {
+        self.operators.push(operator);
+        self.current_op_index = self.operators.len() as i32 - 1;
+    }
+}
+
+impl<'ctx> Query<'ctx> {
+    pub fn new(plan: LogicalPlan, codegen: CodeGenRef<'ctx>) -> Self {
+        Query {
+            plan,
+            codegen,
+            state: Rc::new(RefCell::new(QueryState::new())),
+            plan_func: None,
+        }
+    }
+
+    /// execute a compiled query plan
+    pub fn execute(
+        self,
+        executor_context: &ExecutorContext,
+        consumer: Rc<BufferingConsumer>,
+    ) -> Result<RecordBatch> {
+        assert!(self.plan_func.is_some(), "Query plan is not compiled");
+        // create the struct that will be passed to the llvm ir world
+        // the 1st and 2nd members are executor context and buffering consumer
+
+        // prepare the param, then invoke the compiled function
+        let target_data = self.codegen.engine.get_target_data();
+        let query_state_type = self
+            .state
+            .as_ref()
+            .borrow()
+            .get_type()
+            .expect("QueryState type not finalized");
+        let query_state_size = target_data.get_abi_size(&query_state_type);
+        debug!("QueryState size: {:?}", query_state_size);
+
+        // allocate a block of memory for the query state in Rust world and set 1st 2 params
+        // then invoke the compiled function
+        let mut param_data = vec![0u8; query_state_size as usize];
+        let param_ptr = param_data.as_mut_ptr();
+        let func_args: *mut FunctionArguments = param_ptr as *mut FunctionArguments;
+        unsafe {
+            (*func_args).executor_context = executor_context as *const _ as *const i8;
+            (*func_args).consumer_arg = Rc::as_ptr(&consumer) as *const i8;
+            let plan_func = self.plan_func.unwrap();
+            debug!("invoking the plan function with query state ptr: {:?}, executor_context: {:?}, consumer: {:?}", 
+                param_ptr,(*func_args).executor_context, (*func_args).consumer_arg);
+            plan_func.call(param_ptr as *const i8);
+        }
+        // convert the result from PrimTuple to RecordBatch
+        consumer.to_record_batch()
+    }
+}
+
+impl<'a> ExecutorContext<'a> {
+    pub fn new(plan: &LogicalPlan, session_context: &'a SessionContext) -> Self {
+        let mut table_source = HashMap::new();
+        for (table, schema) in plan.source_tables().unwrap() {
+            let consumer = BufferingConsumer::new(schema);
+            let session_state = session_context.state.read();
+            let table_name = session_state.resolve_table_ref(&table).to_string();
+            table_source.insert(table_name, consumer);
+        }
+        ExecutorContext {
+            table_source,
+            session_context,
+        }
+    }
+}
+
+impl<'ctx> CompilationContext<'ctx> {
+    pub fn new(
+        codegen: CodeGenRef<'ctx>,
+        query_state: Rc<RefCell<QueryState<'ctx>>>,
+        buffering_consumer: Rc<BufferingConsumer>,
+    ) -> Self {
+        CompilationContext {
+            codegen,
+            pipelines: Vec::new(),
+            execution_consumer: buffering_consumer.clone(),
+            query_state,
+            op_translators: HashMap::new(),
+        }
+    }
+
+    pub fn compile_query(&mut self, query: &mut Query<'ctx>) -> Result<()> {
+        // Below is a test function before we have produce and consume and compile
+        // compile the query plan
+        // let codegen = self.codegen.as_ref();
+        // let fn_name = "main_function";
+        // let mut fn_builder = FunctionBuilder::new(
+        // codegen,
+        // fn_name,
+        // codegen.types.voidtype,
+        // &[("query_state".to_owned(), codegen.types.ptrtype.into())],
+        // );
+        // register the global query state struct type, 1st is executor context, 2nd is the
+        // buffering consumer
+        // query
+        // .state
+        // .borrow_mut()
+        // .register_state("executor_context", codegen.types.ptrtype.into());
+        //
+        // query
+        // .state
+        // .borrow_mut()
+        // .register_state("buffering_consumer", codegen.types.ptrtype.into());
+        // finalize the query state struct type
+        // query.state.borrow_mut().finalize_type(codegen);
+        //
+        // now we can interpret the input param as query state struct and extract its members
+        //
+        // get the 1st and 2nd members of the query state struct
+        // let param_ptr = fn_builder.get_arg_by_name("query_state").unwrap();
+        // let executor_context_ptr_ptr = codegen
+        // .builder
+        // .build_struct_gep(
+        // query.state.borrow().get_type().unwrap(),
+        // param_ptr.into_pointer_value(),
+        // 0,
+        // "executor_context_ptr_ptr",
+        // )
+        // .unwrap();
+        // let consumer_ptr_ptr = codegen
+        // .builder
+        // .build_struct_gep(
+        // query.state.borrow().get_type().unwrap(),
+        // param_ptr.into_pointer_value(),
+        // 1,
+        // "consumer_ptr_ptr",
+        // )
+        // .unwrap();
+        // load the executor context and consumer pointers
+        // let executor_context_ptr = codegen
+        // .builder
+        // .build_load(
+        // codegen.types.ptrtype,
+        // executor_context_ptr_ptr,
+        // "executor_context_ptr",
+        // )
+        // .unwrap()
+        // .into_pointer_value();
+        // let consumer_ptr = codegen
+        // .builder
+        // .build_load(codegen.types.ptrtype, consumer_ptr_ptr, "consumer_ptr")
+        // .unwrap()
+        // .into_pointer_value();
+        //
+        // codegen.emit_printf_call(
+        // "\t[info from LLVM IR:query_state_ptr=%p, executor_context_ptr=%p, consumer_ptr=%p]\n",
+        // &[
+        // fn_builder.get_arg_by_name("query_state").unwrap().into(),
+        // executor_context_ptr.into(),
+        // consumer_ptr.into(),
+        // ],
+        // );
+        // fn_builder.return_and_finish(codegen, None);
+
+        let codegen = self.codegen.clone();
+
+        // Create the main pipeline
+        let main_pipeline = Pipeline::new(0);
+        self.pipelines.push(main_pipeline);
+        // register the global query state struct type, 1st is executor context, 2nd is the
+        // buffering consumer
+        query
+            .state
+            .borrow_mut()
+            .register_state("executor_context", codegen.types.ptrtype.into());
+
+        query
+            .state
+            .borrow_mut()
+            .register_state("buffering_consumer", codegen.types.ptrtype.into());
+
+        // prepare the pipeline with operators based on the query plan
+        self.prepare(&query.plan, 0)?;
+
+        // finalize the query state struct type
+        query.state.borrow_mut().finalize_type(codegen.as_ref());
+
+        let main_fn_name = "plan_entry_function";
+
+        {
+            // Create the function builder for the pipeline function and push to stack
+            FunctionBuilder::new_and_push_to_stack(
+                codegen.as_ref(),
+                main_fn_name,
+                codegen.types.voidtype,
+                &[("query_state".to_owned(), codegen.types.ptrtype.into())],
+            );
+
+            self.produce(&query.plan)?;
+
+            let mut fn_builder = codegen
+                .function_builders
+                .borrow_mut()
+                .pop()
+                .expect("No function builder found");
+
+            fn_builder.return_and_finish(codegen.as_ref(), None);
+        }
+
+        // verify before saving the JIT function
+        codegen
+            .module
+            .verify()
+            .map_err(|e| anyhow::anyhow!("Module verification failed: {:?}", e))?;
+        debug!("########LLVM IR verified###############");
+        // save the JIT function to the query object
+        let jit_function: JitFunction<PtrVoidFnType> = unsafe {
+            codegen
+                .engine
+                .get_function(main_fn_name)
+                .expect("Failed to get JIT function")
+        };
+        codegen.show_llvm_ir();
+
+        query.plan_func = Some(jit_function);
+
+        Ok(())
+    }
+
+    pub fn get_translator(
+        &self,
+        plan: &LogicalPlan,
+    ) -> Option<&Box<dyn OperatorTranslator<'ctx> + 'ctx>> {
+        if let Some((pipeline_id, operator_index)) = self.op_translators.get(plan) {
+            self.pipelines
+                .get(*pipeline_id)?
+                .operators
+                .get(*operator_index)
+        } else {
+            None
+        }
+    }
+
+    pub fn produce(&self, plan: &LogicalPlan) -> Result<()> {
+        if let Some(translator) = self.get_translator(plan) {
+            translator.produce(self)
+        } else {
+            debug!(
+                "No translator found for the plan: {}",
+                plan.get_plan_enum_name()
+            );
+            Err(anyhow::anyhow!("No translator found for the plan"))
+        }
+    }
+
+    pub fn prepare(&mut self, plan: &LogicalPlan, pipeline_id: usize) -> Result<()> {
+        match plan {
+            LogicalPlan::Projection(_projection) => {
+                debug!("1st prepare for child of projection");
+
+
+                debug!(
+                    "Preparing ProjectionTranslator for plan projection: {:?}",
+                    plan
+                );
+
+                // Create single translator instance
+                let translator = ProjectionTranslator::new(plan.clone(), pipeline_id);
+
+                // Add to pipeline (single owner)
+                let pipeline = &mut self.pipelines[pipeline_id];
+                let operator_index = pipeline.operators.len();
+                pipeline.add_operator(Box::new(translator));
+
+                // Store lookup info in HashMap (not the actual translator)
+                self.op_translators
+                    .insert(plan.clone(), (pipeline_id, operator_index));
+
+                // prepare the child
+                let inputs = plan.inputs();
+                let child = inputs
+                    .get(0)
+                    .ok_or_else(|| anyhow::anyhow!("Projection operator has no input"))?;
+                self.prepare(child, pipeline_id)?;
+            }
+            LogicalPlan::Filter(_filter) => {
+
+
+                // create a FilterTranslator and register it
+                debug!("Preparing FilterTranslator for plan filter: {:?}", plan);
+
+                let translator = FilterTranslator::new(plan.clone(), pipeline_id);
+                let pipeline = &mut self.pipelines[pipeline_id];
+                let operator_index = pipeline.operators.len();
+                pipeline.add_operator(Box::new(translator));
+                self.op_translators
+                    .insert(plan.clone(), (pipeline_id, operator_index));
+
+
+                debug!("prepare for child of filter");
+                // prepare the child 
+                let inputs = plan.inputs();
+                let child = inputs
+                    .get(0)
+                    .ok_or_else(|| anyhow::anyhow!("Filter operator has no input"))?;
+                self.prepare(child, pipeline_id)?;
+
+            }
+            LogicalPlan::TableScan(_scan) => {
+                let translator = TableScanTranslator::new(plan.clone(), pipeline_id);
+                let pipeline = &mut self.pipelines[pipeline_id];
+                let operator_index = pipeline.operators.len();
+                pipeline.add_operator(Box::new(translator));
+                self.op_translators
+                    .insert(plan.clone(), (pipeline_id, operator_index));
+
+                 // table scan do not have child
+            }
+            _ => {
+                return Err(anyhow::anyhow!("Unsupported plan type yet"));
+            }
+        }
+        // print the current registered translators
+        for (plan, _translator) in self.op_translators.iter() {
+            debug!(
+                "Registered translator for plan: {}",
+                plan.get_plan_enum_name()
+            );
+        }
+        Ok(())
+    }
+}
+
+impl<'a, 'ctx> ConsumerContext<'a, 'ctx> {
+    pub fn new(compilation_context: &'a CompilationContext<'ctx>, pipeline_id: usize) -> Self {
+        let pipeline = compilation_context.pipelines.get(pipeline_id).unwrap();
+        ConsumerContext {
+            compilation_context,
+            pipeline_id,
+            current_op_index: pipeline.operators.len() as i32 - 1, // Start at the last operator
+        }
+    }
+
+    pub fn get_query_state(&self) -> Ref<'_, QueryState<'ctx>> {
+        self.compilation_context.query_state.borrow()
+    }
+    pub fn get_query_state_type(&self) -> StructType<'ctx> {
+        self.compilation_context
+            .query_state
+            .borrow()
+            .get_type()
+            .expect("QueryState type not finalized")
+    }
+
+    /// Get pipeline information by ID from the compilation context
+    pub fn get_pipeline(&self) -> Option<&Pipeline<'ctx>> {
+        self.compilation_context.pipelines.get(self.pipeline_id)
+    }
+
+    pub fn consume(&self, row: &Row<'_, 'ctx>) -> Result<()> {
+        // using the pipline id to get the pipline from compilation context
+        let pipeline = self
+            .get_pipeline()
+            .ok_or_else(|| anyhow::anyhow!("Pipeline with id {} not found", self.pipeline_id))?;
+
+        // let translator = pipeline.next_step();
+        debug!(
+            "ConsumerContext consuming at pipeline_id: {}, current_op_index: {}",
+            self.pipeline_id, self.current_op_index
+        );
+        let translator = pipeline.operators.get((self.current_op_index - 1) as usize);
+
+        debug!(
+            "Translator at current_op_index {}: {:?}",
+            self.current_op_index - 1,
+            translator
+                .as_ref()
+                .map(|t| t.get_plan().get_plan_enum_name())
+        );
+        // debug output all translators in pipeline.operators
+        for (i, op) in pipeline.operators.iter().enumerate() {
+            debug!("Operator {}: {}", i, op.get_plan().get_plan_enum_name());
+        }
+
+        match translator {
+            Some(translator) => {
+                // self.current_op_index -= 1; // Move to the next operator for the next consume
+                // call;
+                //TODO: here is a workaround to create a new ConsumerContext for the next step, can we just update self.current_op_index -= 1;
+                // Create a new ConsumerContext for the next step
+                let next_context = ConsumerContext {
+                    compilation_context: self.compilation_context,
+                    pipeline_id: self.pipeline_id,
+                    current_op_index: self.current_op_index - 1, // Move to next operator
+                };
+
+                // translator.consume(self, row)
+                translator.consume(&next_context, row)
+            }
+            None => {
+                // End of pipeline
+                let consumer = &self.compilation_context.execution_consumer;
+                consumer.consume_result(self, row);
+                Ok(())
+            }
+        }
+    }
+}
+
+type CodeGenRef<'ctx> = Rc<CodeGen<'ctx>>;
+type CompilationContextRef<'ctx> = Rc<CompilationContext<'ctx>>;
+
+impl<'ctx> CodeGen<'ctx> {
+    pub fn new_codegen_ref(context: &'ctx Context, name: &str) -> CodeGenRef<'ctx> {
+        Rc::new(CodeGen::new(context, name))
+    }
+
+    pub fn new(context: &'ctx Context, name: &str) -> CodeGen<'ctx> {
         let module = context.create_module(name);
         let builder = context.create_builder();
-        let engine = module.create_jit_execution_engine(OptimizationLevel::None).unwrap();
+        let engine = module
+            .create_jit_execution_engine(OptimizationLevel::None)
+            .unwrap();
         let types = TypeWrapper::new(context);
-        QueryCompiler {
+        CodeGen {
             context,
             module,
             builder,
             engine,
             types,
+            function_builders: RefCell::new(Vec::new()), /* RefCell caution, after use drop
+                                                          * immediately */
         }
     }
 
-
-
-   
-
-
-
-    /// build the query plan
-    /// TODO: split to compile_plan_internal and get the jit function pointer
-    pub fn compile_plan<'a>(&'a self, plan: &LogicalPlan, collector: &mut ResultCollector) -> Result<JitFunction<QueryPlan>> {
-        // for now define a test function just to test the LLVM
-        // create a function which takes a pointer of table_name and database_name and session_state pointer and return a pointer of RecordBatch
-        let fn_type = self.types.i8ptrtype.fn_type(&[self.types.i8ptrtype.into(), self.types.i8ptrtype.into(), self.types.i8ptrtype.into()], false);
-        let fn_value = self.module.add_function("plan", fn_type, None);
-        let entry_bb = self.context.append_basic_block(fn_value, "entry");
-        self.builder.position_at_end(entry_bb);
-        //actual entry of the plan, simply call the get_load_table_data
-        // get the input parameters
-        let table_name = fn_value.get_first_param().unwrap().into_pointer_value();
-        let database_name = fn_value.get_nth_param(1).unwrap().into_pointer_value();
-        let session = fn_value.get_nth_param(2).unwrap().into_pointer_value();
-
-        // print the params
-        //self.emit_printf_call("table_name: %s, database_name: %s\n", &[table_name.into(), database_name.into()]);
-
-        let loadtbl_func = self.module.get_function("load_table_data").unwrap();
-        let call_result = self.builder.build_call(loadtbl_func, &[table_name.into(),  database_name.into() , session.into()], "").unwrap();  
-        let result = self.builder.build_pointer_cast(call_result.try_as_basic_value().left().unwrap().into_pointer_value(), self.types.i8ptrtype, "").unwrap();
-        
-        //load table data finished. now should deserialize the data into a batch
-
-        self.deserialize_batch_test(result).unwrap();
-
-        println!("=============TEST====================");
-        let batch_meta = self.load_batch_meta(result).unwrap();
-        //get the table scan schema
-        let p = match plan {
-            LogicalPlan::Projection(p) => p,
-            _=> unimplemented!(),
-        };
-        let scan = match p.input.as_ref() {
-            LogicalPlan::TableScan(s) => s,
-            _=> unimplemented!(),
-        };
-        let schema = scan.projected_schema.clone();
-        println!("the scan schema is {:?}", schema);
-        collector.schema = Some(schema.clone());
-
-
-        //the row pointer are stored in batch_meta.row_ptrs with num_rows
-        //let's build anthoer loop to load the data
-
-       
-        let ti = self.builder.build_alloca(self.types.i32type, "ti")?;
-        self.builder.build_store(ti, self.types.i32type.const_zero())?;
-
-        let new_result_ptr = self.types.i8ptrtype.const_null();
-
-        // create a loop. TODO: here needs function, we should have a better way to associate function with builder.
-        let cur_function = self.builder.get_insert_block().unwrap().get_parent().unwrap();
-        let tloop_head = self.context.append_basic_block(cur_function, "tloop_head");
-        let tloop_body = self.context.append_basic_block(cur_function, "tloop_body");
-        let tloop_end = self.context.append_basic_block(cur_function, "tloop_end");
-
-        self.builder.build_unconditional_branch(tloop_head)?;
-        self.builder.position_at_end(tloop_head);
-        let ti_val = self.builder.build_load(self.types.i32type, ti, "").unwrap().into_int_value();
-        let tcond = self.builder.build_int_compare(inkwell::IntPredicate::ULT, ti_val, batch_meta.num_rows, "loop_cond").unwrap();
-        self.builder.build_conditional_branch(tcond, tloop_body, tloop_end)?;
-
-        self.builder.position_at_end(tloop_body);
-        let row_ptr = unsafe {self.builder.build_in_bounds_gep(self.types.i8ptrtype, batch_meta.row_ptrs, &[ti_val], "")?};
-        // load the row pointer
-        let row_ptr = self.builder.build_load(self.types.i8ptrtype, row_ptr, "")?.into_pointer_value();
-        let row: LLVMRow<'_> = self.load_data_row(row_ptr, schema.clone()).unwrap();
-        // now technically we should call consume of up layer operators of row
-        // note now we are in the rust world and the loop is in the llvm world
-        // it may sounds like we can save the row in a rust vec and later serialize it
-        // however note that here in rust world we do not have loop at all (loop is the gnerated IR)
-        // we have to deliver this row to the rust world eventually. 
-
-        // seralize/deseralize a batch of multiple rows using llvm may be complex as we need to maintain the 
-        // buffer size and the offset of each row.
-        // for now we just seralize a single row and return the address of the row data
-
-        // perhaps we should introduce (buffer)consumer now.
-        
-        // here is just poc. we will definitely need refactor later
-        // the idea here is that we allocate a new memory block in heap, and serialize the row data to the new memory block
-
-         //now let's serialize the row data
-        // first let's calculate the size of the row data
-        let mut row_size = self.types.i32type.const_int(0, false);
-        for value in row.values.iter() {
-            let value_size = match value.data_type {
-                DataType::Int32 => self.types.i32type.const_int(4, false),
-                DataType::Int64 => self.types.i32type.const_int(8, false),
-                DataType::Float32 => self.types.i32type.const_int(4, false),
-                DataType::Float64 => self.types.i32type.const_int(8, false),
-                DataType::Utf8 => {
-                    let size = value.size.unwrap();
-                    let field_size = self.builder.build_int_add(self.types.i32type.const_int(4, false), size, "")?;
-                    field_size
-                }
-                DataType::Binary => {
-                    let size = value.size.unwrap();
-                    let field_size = self.builder.build_int_add(self.types.i32type.const_int(4, false), size, "")?;
-                    field_size
-                }
-                DataType::Boolean => self.types.i32type.const_int(1, false),
-                DataType::Null => self.types.i32type.const_int(1, false),
-                DataType::Int16 => self.types.i32type.const_int(2, false),
-                DataType::Int8 => self.types.i32type.const_int(1, false),
-                DataType::UInt8 => self.types.i32type.const_int(1, false),
-                DataType::UInt16 => self.types.i32type.const_int(2, false),
-                DataType::UInt32 => self.types.i32type.const_int(4, false),
-                DataType::UInt64 => self.types.i32type.const_int(8, false),
-                DataType::Date32 => self.types.i32type.const_int(4, false),
-                DataType::Date64 => self.types.i32type.const_int(8, false),
-                DataType::Time32Millisecond => self.types.i32type.const_int(4, false),
-                DataType::Time64Nanosecond => self.types.i32type.const_int(8, false),
-                DataType::Time32Second => self.types.i32type.const_int(4, false),
-                DataType::Time64Microsecond => self.types.i32type.const_int(8, false),
-            };
-            row_size = self.builder.build_int_add(row_size, value_size, "row_size")?;
-        }
-        row_size = self.builder.build_int_add(row_size, self.types.i32type.const_int(row.values.len() as u64, false), "")?; // the null bitmap
-        // allocate the memory block
-        //let new_result = self.builder.build_array_malloc(self.types.i8type, row_size, "new_result")?;
-        
-
-        // serialize the row data
-        // first write the total size of the row data. now equals = 4 + 4 + 4 + row_size (remember total_size:number_of_rows:row_offset:row_data)
-        let total_size = self.builder.build_int_add(self.types.i32type.const_int(12, false), row_size, "total_size")?;
-
-        let new_result = self.builder.build_call(self.module.get_function("malloc").unwrap(), &[total_size.into()], "new_result").unwrap().try_as_basic_value().left().unwrap().into_pointer_value(); 
-        // set memory to 0
-        self.builder.build_call(self.module.get_function("memset").unwrap(), &[new_result.into(), self.types.i32type.const_int(0, false).into(), total_size.into()], "")?;
-
-
-        
-        //TODO: check the size of row_size.
-        self.emit_printf_call("$$$$$the address of new_result is-----> %p\n", &[new_result.into()]);
-
-
-
-        self.emit_printf_call("$$$$the total size of the row data----->: %d\n", &[total_size.into()]);
-        let total_size_ptr = new_result.const_cast(self.types.i32ptrtype);
-        self.builder.build_store(total_size_ptr, total_size)?;
-
-        // read it out and check.
-        let total_sizetemp = self.builder.build_load(self.types.i32type, total_size_ptr, "")?.into_int_value();
-        self.emit_printf_call("$$$$verified total size of the row data----->: %d\n", &[total_sizetemp.into()]);
-        
-        
-        // write the number of rows
-        let num_rows_ptr = unsafe {total_size_ptr.const_in_bounds_gep(self.types.i32type, &[self.types.i32type.const_int(1, false)])};
-        self.builder.build_store(num_rows_ptr, self.types.i32type.const_int(1, false))?;
-        // write the row offset
-        let row_offset_ptr = unsafe {num_rows_ptr.const_in_bounds_gep(self.types.i32type, &[self.types.i32type.const_int(1, false)])};
-        self.builder.build_store(row_offset_ptr, self.types.i32type.const_int(12, false))?;
-        // write the row data
-        let mut row_data_ptr = unsafe {new_result.const_in_bounds_gep(self.types.i8type, &[self.types.i32type.const_int(12, false)])};
-        // iterate the values and write the data
-        //let mut cur_offset = self.types.i32type.const_int(0, false);
-        for value in row.values.iter() {
-            // write the value
-            match value.data_type {
-                DataType::Int32 => {
-                    let field_ptr = row_data_ptr.const_cast(self.types.i32ptrtype);
-                    self.builder.build_store(field_ptr, value.value.into_int_value())?;
-                    row_data_ptr = unsafe {row_data_ptr.const_in_bounds_gep(self.types.i8type, &[self.types.i32type.const_int(4, false)])};
-                }
-                DataType::Int64 => {
-                    self.emit_printf_call("store int64 to address:%p\n", &[row_data_ptr.into()]);
-                    let field_ptr = row_data_ptr.const_cast(self.types.i64ptrtype);
-                    self.builder.build_store(field_ptr, value.value.into_int_value())?;
-                    row_data_ptr = unsafe {row_data_ptr.const_in_bounds_gep(self.types.i8type, &[self.types.i32type.const_int(8, false)])};
-                }
-                DataType::Float32 => {
-                    let field_ptr = row_data_ptr.const_cast(self.types.i32ptrtype);
-                    self.builder.build_store(field_ptr, value.value.into_float_value())?;
-                    row_data_ptr = unsafe {row_data_ptr.const_in_bounds_gep(self.types.i8type, &[self.types.i32type.const_int(4, false)])};
-                }
-                DataType::Float64 => {
-                    let field_ptr = row_data_ptr.const_cast(self.types.i64ptrtype);
-                    self.builder.build_store(field_ptr, value.value.into_float_value())?;
-                    row_data_ptr = unsafe {row_data_ptr.const_in_bounds_gep(self.types.i8type, &[self.types.i32type.const_int(8, false)])};
-                }
-                DataType::Utf8 => {
-                    let field_size = value.size.unwrap();
-                    let field_size_ptr = row_data_ptr.const_cast(self.types.i32ptrtype);
-                    self.emit_printf_call("$$$$$store size %d to addrss:%p\n", &[field_size.into(), field_size_ptr.into()]);
-                    self.builder.build_store(field_size_ptr, field_size)?;
-                    row_data_ptr = unsafe {row_data_ptr.const_in_bounds_gep(self.types.i8type, &[self.types.i32type.const_int(4, false)])};
-                    let field_ptr = row_data_ptr;
-                    self.emit_printf_call("$$$store string to addrss:%p from %p\n", &[field_ptr.into(),value.value.into()]);
-
-                    
-                    self.emit_printf_call("$$$$$$$$try to copy string:%s, size=%d\n", &[value.value.into(),field_size.into()]);
-                    
-                    
-                   self.builder.build_memcpy(field_ptr, 1, value.value.into_pointer_value(), 1, self.types.i32type.const_int(4, false))?;
-                    //self.builder.build_call(self.module.get_function("strcpy").unwrap(), &[field_ptr.into(), value.value.into()], "")?;
-                    
-
-                    /* 
-                    let tchar = self.types.i8type.const_int(10, false);
-                    self.builder.build_store(field_ptr, tchar)?;
-                    let field_ptr = unsafe {self.builder.build_in_bounds_gep(self.types.i8type, field_ptr, &[self.types.i32type.const_int(1, false)], "")?};
-                    self.builder.build_store(field_ptr,  tchar)?;
-                    let field_ptr = unsafe {self.builder.build_in_bounds_gep(self.types.i8type, field_ptr, &[self.types.i32type.const_int(1, false)], "")?};
-                    self.builder.build_store(field_ptr,  tchar)?;
-                    let field_ptr = unsafe {self.builder.build_in_bounds_gep(self.types.i8type, field_ptr, &[self.types.i32type.const_int(1, false)], "")?};
-                    self.builder.build_store(field_ptr,  self.types.i8type.const_int(0, false))?;
-                    */
-
-                    // note the size of the string is known at runtime, we need to build gep to the next field
-                    self.emit_printf_call("$$$after memcpy:%s\n", &[field_ptr.into()]);
-
-                    
-                    row_data_ptr = unsafe {self.builder.build_in_bounds_gep(self.types.i8type, row_data_ptr, &[field_size], "")?};
-                }
-                DataType::Binary=>{
-                    let field_size = value.size.unwrap();
-                    let field_size_ptr = row_data_ptr.const_cast(self.types.i32ptrtype);
-                    self.builder.build_store(field_size_ptr, field_size)?;
-                    row_data_ptr = unsafe {row_data_ptr.const_in_bounds_gep(self.types.i8type, &[self.types.i32type.const_int(4, false)])};
-                    let field_ptr = row_data_ptr;
-
-
-                    self.builder.build_memcpy(field_ptr, 4, value.value.into_pointer_value(), 4, field_size)?;
-                    // note the size of the binary is also is known at runtime, we need to build gep to the next field
-                    row_data_ptr = unsafe {self.builder.build_in_bounds_gep(self.types.i8type, row_data_ptr, &[field_size], "")?};
-                }
-                DataType::Boolean => {
-                    let field_ptr = row_data_ptr.const_cast(self.types.i8ptrtype);
-                    self.builder.build_store(field_ptr, value.value.into_int_value())?;
-                    row_data_ptr = unsafe {row_data_ptr.const_in_bounds_gep(self.types.i8type, &[self.types.i32type.const_int(1, false)])};
-                }
-                DataType::Null => {
-                    let field_ptr = row_data_ptr.const_cast(self.types.i8ptrtype);
-                    self.builder.build_store(field_ptr, value.value.into_int_value())?;
-                    row_data_ptr = unsafe {row_data_ptr.const_in_bounds_gep(self.types.i8type, &[self.types.i32type.const_int(1, false)])};
-                }
-                DataType::Int16 => {
-                    let field_ptr = row_data_ptr.const_cast(self.types.i16ptrtype);
-                    self.builder.build_store(field_ptr, value.value.into_int_value())?;
-                    row_data_ptr = unsafe {row_data_ptr.const_in_bounds_gep(self.types.i8type, &[self.types.i32type.const_int(2, false)])};
-                }
-                DataType::Int8 => {
-                    let field_ptr = row_data_ptr.const_cast(self.types.i8ptrtype);
-                    self.builder.build_store(field_ptr, value.value.into_int_value())?;
-                    row_data_ptr = unsafe {row_data_ptr.const_in_bounds_gep(self.types.i8type, &[self.types.i32type.const_int(1, false)])};
-                }
-                DataType::UInt8 => {
-                    let field_ptr = row_data_ptr.const_cast(self.types.i8ptrtype);
-                    self.builder.build_store(field_ptr, value.value.into_int_value())?;
-                    row_data_ptr = unsafe {row_data_ptr.const_in_bounds_gep(self.types.i8type, &[self.types.i32type.const_int(1, false)])};
-                }
-                DataType::UInt16 => {
-                    let field_ptr = row_data_ptr.const_cast(self.types.i16ptrtype);
-                    self.builder.build_store(field_ptr, value.value.into_int_value())?;
-                    row_data_ptr = unsafe {row_data_ptr.const_in_bounds_gep(self.types.i8type, &[self.types.i32type.const_int(2, false)])};
-                }
-                DataType::UInt32 => {
-                    let field_ptr = row_data_ptr.const_cast(self.types.i32ptrtype);
-                    self.builder.build_store(field_ptr, value.value.into_int_value())?;
-                    row_data_ptr = unsafe {row_data_ptr.const_in_bounds_gep(self.types.i8type, &[self.types.i32type.const_int(4, false)])};
-                }
-                DataType::UInt64 => {
-                    let field_ptr = row_data_ptr.const_cast(self.types.i64ptrtype);
-                    self.builder.build_store(field_ptr, value.value.into_int_value())?;
-                    row_data_ptr = unsafe {row_data_ptr.const_in_bounds_gep(self.types.i8type, &[self.types.i32type.const_int(8, false)])};
-                }
-                DataType::Date32 => {
-                    let field_ptr = row_data_ptr.const_cast(self.types.i32ptrtype);
-                    self.builder.build_store(field_ptr, value.value.into_int_value())?;
-                    row_data_ptr = unsafe {row_data_ptr.const_in_bounds_gep(self.types.i8type, &[self.types.i32type.const_int(4, false)])};
-                }
-                DataType::Date64 => {
-                    let field_ptr = row_data_ptr.const_cast(self.types.i64ptrtype);
-                    self.builder.build_store(field_ptr, value.value.into_int_value())?;
-                    row_data_ptr = unsafe {row_data_ptr.const_in_bounds_gep(self.types.i8type, &[self.types.i32type.const_int(8, false)])};
-                }
-                DataType::Time32Millisecond => {
-                    let field_ptr = row_data_ptr.const_cast(self.types.i32ptrtype);
-                    self.builder.build_store(field_ptr, value.value.into_int_value())?;
-                    row_data_ptr = unsafe {row_data_ptr.const_in_bounds_gep(self.types.i8type, &[self.types.i32type.const_int(4, false)])};
-                }
-                DataType::Time64Nanosecond => {
-                    let field_ptr = row_data_ptr.const_cast(self.types.i64ptrtype);
-                    self.builder.build_store(field_ptr, value.value.into_int_value())?;
-                    row_data_ptr = unsafe {row_data_ptr.const_in_bounds_gep(self.types.i8type, &[self.types.i32type.const_int(8, false)])};
-                }
-                DataType::Time32Second => {
-                    let field_ptr = row_data_ptr.const_cast(self.types.i32ptrtype);
-                    self.builder.build_store(field_ptr, value.value.into_int_value())?;
-                    row_data_ptr = unsafe {row_data_ptr.const_in_bounds_gep(self.types.i8type, &[self.types.i32type.const_int(4, false)])};
-                }
-                DataType::Time64Microsecond => {
-                    let field_ptr = row_data_ptr.const_cast(self.types.i64ptrtype);
-                    self.builder.build_store(field_ptr, value.value.into_int_value())?;
-                    row_data_ptr = unsafe {row_data_ptr.const_in_bounds_gep(self.types.i8type, &[self.types.i32type.const_int(8, false)])};
-                }
-            }
-        }
-        // now append the null bitmap
-        for value in row.values.iter() {
-            let null_bitmap_ptr = row_data_ptr.const_cast(self.types.i8ptrtype);
-            self.builder.build_store(null_bitmap_ptr, value.null_rep)?;
-            row_data_ptr = unsafe {row_data_ptr.const_in_bounds_gep(self.types.i8type, &[self.types.i32type.const_int(1, false)])};
-        }
-        self.emit_printf_call("$$$$$the address of row_data_ptr is %p\n", &[row_data_ptr.into()]);
-    
-        // now collect the result to the collector
-        self.emit_printf_call("$$$$$the address of new_result is %p\n", &[new_result.into()]);
-        // invoke the call of deliver_row
-        let deliver_row_func = self.module.get_function("deliver_row").unwrap();
-        let collector_ptr = collector as *mut ResultCollector as *const i8;
-        let ptr_addr = self.types.i64type.const_int(collector_ptr as u64, false);
-        let ptr_addr_llvm = self.builder.build_int_to_ptr(ptr_addr, self.types.i8ptrtype, "")?;
-        self.builder.build_call(deliver_row_func, &[new_result.into(), ptr_addr_llvm.into()], "")?;
-
-
-
-
-                // read it out and check.
-        let total_sizetemp2 = self.builder.build_load(self.types.i32type, total_size_ptr, "")?.into_int_value();
-        self.emit_printf_call("$$$$verified total size of the row data=====>>>>>>: %d\n", &[total_sizetemp2.into()]);
-                
-                
-
-        
-
-        //======end of serialize=== increment i now
-        let next_ti = self.builder.build_int_add(ti_val, self.types.i32type.const_int(1, false), "next_ti")?;
-        self.builder.build_store(ti, next_ti)?;
-        // jump back to loop_head
-        self.builder.build_unconditional_branch(tloop_head)?;
-
-        // now the loop ends
-        self.builder.position_at_end(tloop_end);
-
-
-
-        //now serialize the data back to another memory address
-        //let new_result = self.serialize_batch().unwrap();
-
-        
-        // let's return the new address
-        //self.builder.build_return(Some(&result)).unwrap();
-
-        let ret = self.types.i8ptrtype.const_null();
-        self.builder.build_return(Some(&ret)).unwrap();
-
-        //self.builder.build_return(Some(&new_result)).unwrap();
-
-
-        // get the jit function and return it
-        let maybe_fn = unsafe {self.engine.get_function::<QueryPlan>("plan")};
-        match maybe_fn {
-            Ok(f) => Ok(f),
-            Err(err) => Err(anyhow!("{:?}", err))
-        }
-
+    /// Get a struct type by name
+    pub fn lookup_type(&self, name: &str) -> Option<StructType<'ctx>> {
+        self.module.get_struct_type(name)
     }
 
+    /// Initialize the codegen context
+    pub fn initialize(&self) {
+        // register the proxy functions
+        self.register_proxy_functions();
+        // register the proxy types
+        self.register_proxy_types();
+        // register standard library functions
+        self.register_stdlib_functions();
+    }
 
+    /// When we do code gen, we use the function_builders as a stack,
+    /// where the top entry is always the current function that is building
+    /// once done, pop the top entry
+    /// here we get the state from the top function builder
+    /// the state is always the first argument of the function
+    pub fn get_state(&self) -> BasicValueEnum<'ctx> {
+        // get the function builder at the stack top
+        let fn_builder = self.function_builders.borrow();
+        fn_builder
+            .last()
+            .expect("No function builder found")
+            .get_arg_by_index(0)
+            .expect("Failed to get state argument")
+    }
 
-    /// load the batch meta data, i.e. size, row pointer array, number of rows
-    /// prepare for later row data access. dataptr is a pointer of i8 type.
-    pub fn load_batch_meta(&self, dataptr: PointerValue<'ctx>) ->Result<LLVMRowBatch> {
-        let sizeptr = dataptr.const_cast(self.types.i32ptrtype);
-        let size = self.builder.build_load(self.types.i32type, sizeptr, "")?.into_int_value();
-        let rownumptr = unsafe {sizeptr.const_in_bounds_gep(self.types.i32type, &[self.types.i32type.const_int(1, false)])};
-        let num_rows = self.builder.build_load(self.types.i32type, rownumptr, "")?.into_int_value();
-        // allocate the row pointer array in heap. TODO: verify when to free the memory
-        // note LLVM also support alloca array in stack, like VLA (variable length array) in C. but there are some risks of stack overflow
-        // note the type is i8ptrtype, as the row pointer is pointer to row address.
-        let row_ptrs = self.builder.build_array_malloc(self.types.i8ptrtype, num_rows, "")?;
-        // do a llvm IR loop to load the row pointers, equal to the dataptr + offset
-
-
-        // init. allocate temp var i and set i=0
-        let i = self.builder.build_alloca(self.types.i32type, "i")?;
-        self.builder.build_store(i, self.types.i32type.const_zero())?;
-
-        // create a loop. TODO: here needs function, we should have a better way to associate function with builder.
-        let cur_function = self.builder.get_insert_block().unwrap().get_parent().unwrap();
-        let loop_head = self.context.append_basic_block(cur_function, "loop_head");
-        let loop_body = self.context.append_basic_block(cur_function, "loop_body");
-        let loop_end = self.context.append_basic_block(cur_function, "loop_end");
-
-        self.builder.build_unconditional_branch(loop_head)?;
-        self.builder.position_at_end(loop_head);
-        let i_val = self.builder.build_load(self.types.i32type, i, "").unwrap().into_int_value();
-        let cond = self.builder.build_int_compare(inkwell::IntPredicate::ULT, i_val, num_rows, "loop_cond").unwrap();
-        self.builder.build_conditional_branch(cond, loop_body, loop_end)?;
-
-        self.builder.position_at_end(loop_body);
-        // note there are two offsets. one is the offset of the row pointer array, the other is the offset of the row data
-        // calculate offset location. ith row, its offset is at: dataptr + 4 + 4 + i*4
-        let offset_arr_idx = self.builder.build_int_mul(i_val, self.types.i32type.const_int(4, false), "").unwrap();
-        let offset_arr_idx = self.builder.build_int_add(offset_arr_idx, self.types.i32type.const_int(8, false), "").unwrap();
-        self.emit_printf_call("the offset array: %d\n", &[offset_arr_idx.into()]);
-        let offset_ptr = unsafe {self.builder.build_in_bounds_gep(self.types.i8type, dataptr, &[offset_arr_idx], "")?};
-       
-        // now load the offset value of the row data from the start of the memory block
-        let offset_value = self.builder.build_load(self.types.i32type, offset_ptr, "")?.into_int_value();
-        // print the offset value
-        self.emit_printf_call("the offset of the row data: %d\n", &[offset_value.into()]);
-        // now add the offset to the memory start to get the row data address
-        let row_ptr = unsafe {self.builder.build_in_bounds_gep(self.types.i8type, dataptr, &[offset_value], "")?};
-        // print the row data address
-        self.emit_printf_call("the address of the row data: %p\n", &[row_ptr.into()]);
-        
-        // this is the dynamic heap array storing the row pointers
-        let row_ptr_addr = unsafe {self.builder.build_in_bounds_gep(self.types.i8ptrtype, row_ptrs, &[i_val], "")?};
-        self.builder.build_store(row_ptr_addr, row_ptr)?;
-
-        //--- Test code. Test if the row_ptr_addr is correct
-        self.emit_printf_call("the address of the row_ptr_addr: %p\n", &[row_ptr_addr.into()]);
-        //cast the row_ptr_addr to 64 bit pointer as the column is int
-        //let row_ptr_addr = row_ptr_addr.const_cast(self.types.i64type.ptr_type(AddressSpace::default()));
-        // load the value at row_ptr_addr  
-        let row_ptr_value = self.builder.build_load(self.types.i8ptrtype, row_ptr_addr, "")?.into_pointer_value();
-        //print
-        self.emit_printf_call("verify the value of the row_ptr_addr: %p\n", &[row_ptr_value.into()]);
-        // load the 1st value, which is the id (int64)
-        let row_ptr_value = row_ptr_value.const_cast(self.types.i64type.ptr_type(AddressSpace::default()));
-        let row_ptr_value = self.builder.build_load(self.types.i64type, row_ptr_value, "")?.into_int_value();
-        //print
-        self.emit_printf_call("verify the value of at row_ptr_addr: %d\n", &[row_ptr_value.into()]);
-        //--- Test code end
-
-
-
-        // increment i
-        let next_i = self.builder.build_int_add(i_val, self.types.i32type.const_int(1, false), "next_i")?;
-        self.builder.build_store(i, next_i)?;
-
-        // jump back to loop_head
-        self.builder.build_unconditional_branch(loop_head)?;
-
-        // now the loop ends
-        self.builder.position_at_end(loop_end);
-
-        // print the size, num_rows and row_ptrs
-        self.emit_printf_call("########size: %d, num_rows: %d######\n", &[size.into(), num_rows.into()]);
-
-        // return the LLVMRowBatch
-        Ok(LLVMRowBatch {
-            size,
-            row_ptrs,
-            num_rows,
+    /// get the current function builder
+    pub fn get_current_function_builder(&self) -> Ref<'_, FunctionBuilder<'ctx>> {
+        // get the function builder at the stack top
+        let fn_builder = self.function_builders.borrow();
+        Ref::map(fn_builder, |fb| {
+            fb.last().expect("No function builder found")
         })
     }
-
-
-    
-    pub fn load_data_row<'a, 'b:'a>(&'a self, row_ptr: PointerValue<'b>, schema: Arc<Schema>) -> Result<LLVMRow> {
-        let mut values = vec![];
-        let mut cur_addr = row_ptr;
-        
-        for field in schema.fields.iter() {
-            let dtype = field.data_type();
-            match dtype {
-                DataType::Int32 => {
-                    let field_ptr = cur_addr.const_cast(self.types.i32ptrtype);
-                    let value = self.builder.build_load(self.types.i32type, field_ptr, "").unwrap();
-                    values.push(LLVMValue {
-                        value: value.into(),
-                        data_type: DataType::Int32,
-                        size: None,
-                        null_rep: self.types.i32type.const_int(0, false),
-                    });
-                    // add teh size to the cur_addr
-                   cur_addr = unsafe {self.builder.build_in_bounds_gep(self.types.i8type, cur_addr, &[self.types.i32type.const_int(4, false)], "")?};
-                }
-                DataType::Int64 => {
-                    let field_ptr = cur_addr.const_cast(self.types.i64ptrtype);
-                    let value = self.builder.build_load(self.types.i64type, field_ptr, "").unwrap();
-                    values.push(LLVMValue {
-                        value: value.into(),
-                        data_type: DataType::Int64,
-                        size: None,
-                        null_rep: self.types.i64type.const_int(0, false),
-                    });
-                    // add teh size to the cur_addr
-                    cur_addr = unsafe {self.builder.build_in_bounds_gep(self.types.i8type, cur_addr, &[self.types.i32type.const_int(8, false)], "")?};
-                }
-                DataType::Float32 => {
-                    let field_ptr = cur_addr.const_cast(self.types.i32ptrtype);
-                    let value = self.builder.build_load(self.types.i32type, field_ptr, "").unwrap();
-                    values.push(LLVMValue {
-                        value: value.into(),
-                        data_type: DataType::Float32,
-                        size: None,
-                        null_rep: self.types.i32type.const_int(0, false),
-                    });
-                    // add teh size to the cur_addr
-                    cur_addr = unsafe {self.builder.build_in_bounds_gep(self.types.i8type, cur_addr, &[self.types.i32type.const_int(4, false)], "")?};
-                }
-                DataType::Float64 => {
-                    let field_ptr = cur_addr.const_cast(self.types.i64ptrtype);
-                    let value = self.builder.build_load(self.types.i64type, field_ptr, "").unwrap();
-                    values.push(LLVMValue {
-                        value: value.into(),
-                        data_type: DataType::Float64,
-                        size: None,
-                        null_rep: self.types.i64type.const_int(0, false),
-                    });
-                    // add teh size to the cur_addr
-                    cur_addr = unsafe {self.builder.build_in_bounds_gep(self.types.i8type, cur_addr, &[self.types.i32type.const_int(8, false)], "")?};
-                }
-                DataType::Null => {
-                    values.push(LLVMValue {
-                        value: self.types.i32type.const_int(0, false).into(),
-                        data_type: DataType::Null,
-                        size: None,
-                        null_rep: self.types.i32type.const_int(1, false),
-                    });
-                    cur_addr = unsafe {self.builder.build_in_bounds_gep(self.types.i8type, cur_addr, &[self.types.i32type.const_int(1, false)], "")?};
-                }
-                DataType::Boolean => {
-                    let field_ptr = cur_addr.const_cast(self.types.i8ptrtype);
-                    let value = self.builder.build_load(self.types.i8type, field_ptr, "").unwrap();
-                    values.push(LLVMValue {
-                        value: value.into(),
-                        data_type: DataType::Boolean,
-                        size: None,
-                        null_rep: self.types.i8type.const_int(0, false),
-                    });
-                    cur_addr = unsafe {self.builder.build_in_bounds_gep(self.types.i8type, cur_addr, &[self.types.i32type.const_int(1, false)], "")?};
-                }
-                DataType::Utf8 => {
-                    let field_size_ptr = cur_addr.const_cast(self.types.i32ptrtype);
-                    let field_size = self.builder.build_load(self.types.i32type, field_size_ptr, "").unwrap().into_int_value();
-                    let field_ptr = unsafe {self.builder.build_in_bounds_gep(self.types.i8type, cur_addr, &[self.types.i32type.const_int(4, false)], "")?};
-                    values.push(LLVMValue {
-                        value: field_ptr.into(),
-                        data_type: DataType::Utf8,
-                        size: Some(field_size),
-                        null_rep: self.types.i32type.const_int(0, false),
-                    });
-                    // add field_size to the cur_addr
-                    cur_addr = unsafe {self.builder.build_in_bounds_gep(self.types.i8type, field_ptr, &[field_size], "")?};
-                }
-                DataType::Binary => {
-                    let field_size_ptr = cur_addr.const_cast(self.types.i32ptrtype);
-                    let field_size = self.builder.build_load(self.types.i32type, field_size_ptr, "").unwrap().into_int_value();
-                    let field_ptr = unsafe {self.builder.build_in_bounds_gep(self.types.i8type, cur_addr, &[self.types.i32type.const_int(4, false)], "")?};
-                    values.push(LLVMValue {
-                        value: field_ptr.into(),
-                        data_type: DataType::Binary,
-                        size: Some(field_size),
-                        null_rep: self.types.i32type.const_int(0, false),
-                    });
-                    // add field_size to the cur_addr
-                    cur_addr = unsafe {self.builder.build_in_bounds_gep(self.types.i8type, field_ptr, &[field_size], "")?};
-                }
-                DataType::Date32 => {
-                    let field_ptr = cur_addr.const_cast(self.types.i32ptrtype);
-                    let value = self.builder.build_load(self.types.i32type, field_ptr, "").unwrap();
-                    values.push(LLVMValue {
-                        value: value.into(),
-                        data_type: DataType::Date32,
-                        size: None,
-                        null_rep: self.types.i32type.const_int(0, false),
-                    });
-                    // add teh size to the cur_addr
-                    cur_addr = unsafe {self.builder.build_in_bounds_gep(self.types.i8type, cur_addr, &[self.types.i32type.const_int(4, false)], "")?};
-                }
-                DataType::Date64 => {
-                    let field_ptr = cur_addr.const_cast(self.types.i64ptrtype);
-                    let value = self.builder.build_load(self.types.i64type, field_ptr, "").unwrap();
-                    values.push(LLVMValue {
-                        value: value.into(),
-                        data_type: DataType::Date64,
-                        size: None,
-                        null_rep: self.types.i64type.const_int(0, false),
-                    });
-                    // add teh size to the cur_addr
-                    cur_addr = unsafe {self.builder.build_in_bounds_gep(self.types.i8type, cur_addr, &[self.types.i32type.const_int(8, false)], "")?};
-                }
-                DataType::Int8 => {
-                    let field_ptr = cur_addr.const_cast(self.types.i8ptrtype);
-                    let value = self.builder.build_load(self.types.i8type, field_ptr, "").unwrap();
-                    values.push(LLVMValue {
-                        value: value.into(),
-                        data_type: DataType::Int8,
-                        size: None,
-                        null_rep: self.types.i8type.const_int(0, false),
-                    });
-                    // add teh size to the cur_addr
-                    cur_addr = unsafe {self.builder.build_in_bounds_gep(self.types.i8type, cur_addr, &[self.types.i32type.const_int(1, false)], "")?};
-                }
-                DataType::Int16 => {
-                    let field_ptr = cur_addr.const_cast(self.types.i16ptrtype);
-                    let value = self.builder.build_load(self.types.i16type, field_ptr, "").unwrap();
-                    values.push(LLVMValue {
-                        value: value.into(),
-                        data_type: DataType::Int16,
-                        size: None,
-                        null_rep: self.types.i16type.const_int(0, false),
-                    });
-                    // add teh size to the cur_addr
-                    cur_addr = unsafe {self.builder.build_in_bounds_gep(self.types.i8type, cur_addr, &[self.types.i32type.const_int(2, false)], "")?};
-                }
-                DataType::UInt8 => {
-                    let field_ptr = cur_addr.const_cast(self.types.i8ptrtype);
-                    let value = self.builder.build_load(self.types.i8type, field_ptr, "").unwrap();
-                    values.push(LLVMValue {
-                        value: value.into(),
-                        data_type: DataType::UInt8,
-                        size: None,
-                        null_rep: self.types.i8type.const_int(0, false),
-                    });
-                    cur_addr = unsafe {self.builder.build_in_bounds_gep(self.types.i8type, cur_addr, &[self.types.i32type.const_int(1, false)], "")?};
-                }
-                DataType::UInt16 => {
-                    let field_ptr = cur_addr.const_cast(self.types.i16ptrtype);
-                    let value = self.builder.build_load(self.types.i16type, field_ptr, "").unwrap();
-                    values.push(LLVMValue {
-                        value: value.into(),
-                        data_type: DataType::UInt16,
-                        size: None,
-                        null_rep: self.types.i16type.const_int(0, false),
-                    });
-                    cur_addr = unsafe {self.builder.build_in_bounds_gep(self.types.i8type, cur_addr, &[self.types.i32type.const_int(2, false)], "")?};
-                }
-                DataType::UInt32 => {
-                    let field_ptr = cur_addr.const_cast(self.types.i32ptrtype);
-                    let value = self.builder.build_load(self.types.i32type, field_ptr, "").unwrap();
-                    values.push(LLVMValue {
-                        value: value.into(),
-                        data_type: DataType::UInt32,
-                        size: None,
-                        null_rep: self.types.i32type.const_int(0, false),
-                    });
-                    cur_addr = unsafe {self.builder.build_in_bounds_gep(self.types.i8type, cur_addr, &[self.types.i32type.const_int(4, false)], "")?};
-                }
-                DataType::UInt64 => {
-                    let field_ptr = cur_addr.const_cast(self.types.i64ptrtype);
-                    let value = self.builder.build_load(self.types.i64type, field_ptr, "").unwrap();
-                    values.push(LLVMValue {
-                        value: value.into(),
-                        data_type: DataType::UInt64,
-                        size: None,
-                        null_rep: self.types.i64type.const_int(0, false),
-                    });
-                    cur_addr = unsafe {self.builder.build_in_bounds_gep(self.types.i8type, cur_addr, &[self.types.i32type.const_int(8, false)], "")?};
-                }
-                DataType::Time32Millisecond => {
-                    let field_ptr = cur_addr.const_cast(self.types.i32ptrtype);
-                    let value = self.builder.build_load(self.types.i32type, field_ptr, "").unwrap();
-                    values.push(LLVMValue {
-                        value: value.into(),
-                        data_type: DataType::Time32Millisecond,
-                        size: None,
-                        null_rep: self.types.i32type.const_int(0, false),
-                    });
-                    cur_addr = unsafe {self.builder.build_in_bounds_gep(self.types.i8type, cur_addr, &[self.types.i32type.const_int(4, false)], "")?};
-                }
-                DataType::Time64Nanosecond => {
-                    let field_ptr = cur_addr.const_cast(self.types.i64ptrtype);
-                    let value = self.builder.build_load(self.types.i64type, field_ptr, "").unwrap();
-                    values.push(LLVMValue {
-                        value: value.into(),
-                        data_type: DataType::Time64Nanosecond,
-                        size: None,
-                        null_rep: self.types.i64type.const_int(0, false),
-                    });
-                    cur_addr = unsafe {self.builder.build_in_bounds_gep(self.types.i8type, cur_addr, &[self.types.i32type.const_int(8, false)], "")?};
-                }
-                DataType::Time32Second => {
-                    let field_ptr = cur_addr.const_cast(self.types.i32ptrtype);
-                    let value = self.builder.build_load(self.types.i32type, field_ptr, "").unwrap();
-                    values.push(LLVMValue {
-                        value: value.into(),
-                        data_type: DataType::Time32Second,
-                        size: None,
-                        null_rep: self.types.i32type.const_int(0, false),
-                    });
-                    cur_addr = unsafe {self.builder.build_in_bounds_gep(self.types.i8type, cur_addr, &[self.types.i32type.const_int(4, false)], "")?};
-                }
-                DataType::Time64Microsecond => {
-                    let field_ptr = cur_addr.const_cast(self.types.i64ptrtype);
-                    let value = self.builder.build_load(self.types.i64type, field_ptr, "").unwrap();
-                    values.push(LLVMValue {
-                        value: value.into(),
-                        data_type: DataType::Time64Microsecond,
-                        size: None,
-                        null_rep: self.types.i64type.const_int(0, false),
-                    });
-                    cur_addr = unsafe {self.builder.build_in_bounds_gep(self.types.i8type, cur_addr, &[self.types.i32type.const_int(8, false)], "")?};
-                }
-            }
-        }
-        // do another loop to patch the null values
-        
-        for (idx, _field) in schema.fields.iter().enumerate() {
-            let field_ptr = cur_addr.const_cast(self.types.i8ptrtype);
-            let value = self.builder.build_load(self.types.i8type, field_ptr, "").unwrap().into_int_value();
-            values[idx].null_rep = value;
-            //test code. print the data value
-            
-            match _field.data_type() {
-                DataType::UInt64 | DataType::Int64 => {
-                    self.emit_printf_call("the value of the field----->: %ld\n", &[values[idx].value.into()]);
-                }
-                DataType::Utf8 => {
-                    self.emit_printf_call("the value of the field---->: %s\n", &[values[idx].value.into()]);
-                }
-                _=> {
-                    self.emit_printf_call("error should not go to here for test: %d\n", &[values[idx].value.into()]);
-                }
-            }
-        }
-        Ok(LLVMRow { values: values, schema: schema })
-    }
-
-    pub fn load_row_ptrs(&self, batch: &LLVMRowBatch) -> Vec<PointerValue<'ctx>> {
-        let mut row_ptrs = vec![];
-
-        row_ptrs
-    }
-
-    /// the the authors machine is Intel and used little endian, so we directly read the u32
-    /// for big endian, it will need to convert the bytes to u32, here did not do that yet
-    /// also pay attention to the usage of const_in_bounds_gep(x,y). the offset calculated
-    /// will be sizeof(x) * y. if x is a pointer type and y=1, will offset 8 bytes.
-    pub fn deserialize_batch_test(&self, memaddr: PointerValue<'ctx>)-> Result<()>{
-
-        // note memaddr is a pointer value with 8 bytes. here add 1 will offset 8 bytes.
-        self.emit_printf_call("original pointer: %p\n", &[memaddr.into()]);
-        let row_start =  unsafe {memaddr.const_in_bounds_gep(self.types.i8type, &[self.types.i32type.const_int(1, false)])};
-        self.emit_printf_call("updated pointer: %p\n", &[row_start.into()]);
-
-        // get a pointer from the memory address. cast to memaddr to u32 type
-        // LLVM IR does not differentiate between signed and unsigned integers.
-        let u32ptr=memaddr.const_cast(self.types.i32type.ptr_type(AddressSpace::default()));
-        let u32val = self.builder.build_load(self.types.i32type, u32ptr, "")?.into_int_value();
-        // print the total size
-        // print the pointer location of u32val
-        self.emit_printf_call("pointer location of u32val: %p\n", &[u32ptr.into()]);
-        self.emit_printf_call("total size got in Llvm ir: %d\n", &[u32val.into()]);
-
-        // now decode the number of rows
-        //let rows_numptr = unsafe {memaddr.const_gep(memaddr.get_type(), &[self.types.i32type.const_int(4, false)])};
-        //let rows_numptr = rows_numptr.const_cast(self.types.i32type.ptr_type(AddressSpace::default()));
-        let rows_numptr = unsafe {u32ptr.const_in_bounds_gep(self.types.i32type, &[self.types.i32type.const_int(1, false)])};
-        let rows_num = self.builder.build_load(self.types.i32type, rows_numptr, "")?.into_int_value();
-        // print the number of rows
-        self.emit_printf_call("pointer location of rows_numptr: %p\n", &[rows_numptr.into()]);
-        self.emit_printf_call("number of rows got in Llvm ir: %d\n", &[rows_num.into()]);
-
-        //simple test can we allocate array dynamic in stack?
-        let stack_array = self.builder.build_array_alloca(self.types.i32type, rows_num, "stack_array").unwrap();
-
-        // now get the 1st row offset.
-        let row1_offset_ptr = unsafe {u32ptr.const_in_bounds_gep(self.types.i32type, &[self.types.i32type.const_int(2, false)])};
-        let row1_offset = self.builder.build_load(self.types.i32type, row1_offset_ptr, "")?.into_int_value();
-        // print the 1st row offset
-        self.emit_printf_call("pointer location of row1_offset_ptr: %p\n", &[row1_offset_ptr.into()]);
-        self.emit_printf_call("1st row offset got in Llvm ir: %d\n", &[row1_offset.into()]);
-        // now get 1st row content. use schema for guide: create table tbl(id int, name varchar(20))
-        // (65539, 'big')
-        // the 1st row is 2, 'world'
-
-
-
-        // now get the 1st row offset. (note this is a temp solution, should add offset to the start, here just use 4)
-        let row1e1_offset_ptr = unsafe {u32ptr.const_in_bounds_gep(self.types.i32type, &[self.types.i32type.const_int(4, false)])};
-        // cast to i64 type as int is 64 bit in SQL
-        let row1e1_offset_ptr = row1e1_offset_ptr.const_cast(self.types.i64type.ptr_type(AddressSpace::default()));
-
-
-        let row1e1 = self.builder.build_load(self.types.i32type, row1e1_offset_ptr, "")?.into_int_value();
-        // print the 1st row offset
-        self.emit_printf_call("pointer location of row1e1_offset_ptr: %p\n", &[row1e1_offset_ptr.into()]);
-        self.emit_printf_call("row1e1: %d\n", &[row1e1.into()]);
-
-        // now the the string value of 'big'
-         // now get the 1st row offset. (note this is a temp solution, should add offset to the start, here just use 4)
-         let row1e2_offset_ptr = unsafe {u32ptr.const_in_bounds_gep(self.types.i32type, &[self.types.i32type.const_int(6, false)])};
-         // cast to back to i32 type for str size first
-         let row1e2size = row1e2_offset_ptr.const_cast(self.types.i32type.ptr_type(AddressSpace::default()));
- 
- 
-         let row1e1 = self.builder.build_load(self.types.i32type, row1e2size, "")?.into_int_value();
-         // print the 1st row offset
-         self.emit_printf_call("the address of the size: %p\n", &[row1e2size.into()]);
-         self.emit_printf_call("the size of the string: %d\n", &[row1e1.into()]);
- 
-        // now print the string 'big'. note this is a c-string end with 0.
-        let row1e2_offset_ptr = unsafe {u32ptr.const_in_bounds_gep(self.types.i32type, &[self.types.i32type.const_int(7, false)])};
-        // cast to i8ptr type
-        let row1e2_offset_ptr = row1e2_offset_ptr.const_cast(self.types.i8ptrtype.ptr_type(AddressSpace::default()));
-        // print the string
-        self.emit_printf_call("the address of the string: %p\n", &[row1e2_offset_ptr.into()]);
-        self.emit_printf_call("the string: %s\n", &[row1e2_offset_ptr.into()]);
-
-        //=====================test use start of the memory plus offset to get the data
-        //let row1init = memaddr.const_cast(self.types.i8ptrtype.ptr_type(AddressSpace::default()));
-        //self.emit_printf_call("===>>>the address of the start of the memory: %p\n", &[row1init.into()]);
-        //self.emit_printf_call("the offset used is %d\n", &[row1_offset.into()]);
-        let row_start =  unsafe {memaddr.const_in_bounds_gep(self.types.i8type, &[row1_offset])};
-        
-        let row_start = row_start.const_cast(self.types.i64type.ptr_type(AddressSpace::default()));
-        let row1e1 = self.builder.build_load(self.types.i64type, row_start, "")?.into_int_value();
-        // print the 1st row offset
-        self.emit_printf_call("newnewnew===>>>pointer location of row1e1_offset_ptr: %p\n", &[row_start.into()]);
-        self.emit_printf_call("newnewnew===>>>row1e1: %d\n", &[row1e1.into()]);
-
-        //=======================
-        // now get the 2nd row offset.
-        let row2_offset_ptr = unsafe {u32ptr.const_in_bounds_gep(self.types.i32type, &[self.types.i32type.const_int(3, false)])};
-        let row2_offset = self.builder.build_load(self.types.i32type, row2_offset_ptr, "")?.into_int_value();
-        // print the 1st row offset
-        self.emit_printf_call("pointer location of row2_offset_ptr: %p\n", &[row2_offset_ptr.into()]);
-        self.emit_printf_call("2st row offset got in Llvm ir: %d\n", &[row2_offset.into()]);
-
-
-        // now get 2nd row content.use schema for guide
-
-        Ok(())
-    }
-
-    pub fn serialize_batch(&self)-> Result<PointerValue>{
-        // get a pointer from the memory address
-
-        unimplemented!()
-    }
-
-
-    pub fn execute(&self, func: JitFunction<QueryPlan>,  session: &SessionContext) -> Result<()/*RecordBatch*/> {
-        let table_name = "tbl";
-        let database_name = "master";
-
-        // convert the string to CString and get the raw pointer
-        let table_name = std::ffi::CString::new(table_name).unwrap();
-        let database_name = std::ffi::CString::new(database_name).unwrap();
-
-        let raw_session_ptr = session as *const SessionContext as *const i8;
-
-        let ans_ptr = unsafe {
-            func.call(table_name.as_ptr() as *const i8, database_name.as_ptr() as *const i8, raw_session_ptr)
-        };
-        // get the schema and then deserialize the RecordBatch
-        let schema = session.database(database_name.to_str().unwrap()).unwrap().get_table_sync(table_name.to_str().unwrap()).unwrap().get_table();
-
-        //TODO: deserialize the data using LLVM IR
-        //TODO: serialize the data using LLVM IR
-
-        //the 1st 4 bytes are the length of the buffer, note it is in little endian and serialized in u32
-
-        //let size_slice = unsafe {std::slice::from_raw_parts(ans_ptr as *const u8, 4)};
-
-        //let len=u32::from_le_bytes(size_slice.to_owned().try_into().unwrap());
-
-        //let data: &[u8] = unsafe { std::slice::from_raw_parts(ans_ptr  as *const u8, len as usize) };
-        
-        //let ret = deserialize_batch(schema, data);
-        //let ret = Err(anyhow!("test error"));
-
-        // for 1st data exchange, we reclaim the memory, there may be memory leak.
-        //unsafe {
-        //    let _vec = Vec::from_raw_parts(ans_ptr as *mut i8, len, len);
-        //};
-        // free the memory passed in by the LLVM (which was allocated by amalloc call in load_table_data function)
-        //unsafe {
-        //   libc::free(ans_ptr as *mut libc::c_void); //note this requires the memory allocated using malloc
-        //}
-        //ret
-
-        Ok(())
-
-    }
-
-    pub fn register_external_func(&self) {
-        // Register for printf function
-        let printf_type = self.types.i32type.fn_type(&[self.types.i8ptrtype.into()], true);
-        self.module.add_function("printf", printf_type, Some(Linkage::External));
-
-        // Register malloc function
-        let malloc_type = self.types.i8ptrtype.fn_type(&[self.types.i64type.into()], false);
-        self.module.add_function("malloc", malloc_type, Some(Linkage::External));
-
-        // Registe memset function
-        let memset_type = self.types.i8ptrtype.fn_type(&[self.types.i8ptrtype.into(), self.types.i32type.into(), self.types.i64type.into()], false);
-        self.module.add_function("memset", memset_type, Some(Linkage::External));
-        
-        // Regiser for load_table_data function
-        let load_table_type = self.types.i8ptrtype.fn_type(&[self.types.i8ptrtype.into(), self.types.i8ptrtype.into(), self.types.i8ptrtype.into()], false);
-        let load_table_func = self.module.add_function("load_table_data", load_table_type, None);
-        self.engine.add_global_mapping(&load_table_func, load_table_data as usize);
-
-        // Register for deliver_row
-        let deliver_row_type = self.types.voidtype.fn_type(&[self.types.i8ptrtype.into(), self.types.i8ptrtype.into()], false);
-        let deliver_row_func = self.module.add_function("deliver_row", deliver_row_type, None);
-        self.engine.add_global_mapping(&deliver_row_func, deliver_row as usize);
-    }
-
-    /// handy function to emit printf call for debug purpose.
-    /// int printf(const char *format, ...)
-    #[allow(dead_code)]
-    fn emit_printf_call<'a,'b>(&'a self, format: &str, args: &[BasicMetadataValueEnum<'b>]) {
-        let printf = self.module.get_function("printf").unwrap();        
-        let pointer_value = self.builder.build_global_string_ptr(format, "").unwrap();
-        let mut build_args = vec![pointer_value.as_basic_value_enum().into()];
-        build_args.extend_from_slice(args);
-        self.builder.build_call(printf, &build_args, "").unwrap();
-    }
-
-    /// show the LLVM IR code.
-    #[allow(dead_code)]
-    fn display(&self) {
-        println!("---------------The LLVM IR---------------------");
-        self.module.print_to_stderr();
-        println!("---------------End of LLVM IR------------------")
-    }
-
 }
-
 
 impl<'ctx> TypeWrapper<'ctx> {
     pub fn new(context: &'ctx Context) -> TypeWrapper<'ctx> {
@@ -1096,62 +718,86 @@ impl<'ctx> TypeWrapper<'ctx> {
             i32type: context.i32_type(),
             i64type: context.i64_type(),
             i8type: context.i8_type(),
-            i8ptrtype: context.i8_type().ptr_type(AddressSpace::default()),
-            i32ptrtype: context.i32_type().ptr_type(AddressSpace::default()),
-            i64ptrtype: context.i64_type().ptr_type(AddressSpace::default()),
             i16type: context.i16_type(),
-            i16ptrtype: context.i16_type().ptr_type(AddressSpace::default()),
+            f32type: context.f32_type(),
+            f64type: context.f64_type(),
             voidtype: context.void_type(),
+            ptrtype: context.ptr_type(AddressSpace::default()),
         }
     }
 }
 
+/// entry function to compile and execute a query plan
+pub fn compile_and_execute(plan: &LogicalPlan, session: &SessionContext) -> Result<RecordBatch> {
+    // create the query object
+    let context = Context::create();
+    let codegen = CodeGen::new(&context, "test");
+    codegen.initialize();
+    let codegen = Rc::new(codegen);
+
+    // create the query object
+    let mut query = Query::new(plan.clone(), codegen.clone());
+
+    let output_schema = plan.output_schema();
+
+    let consumer = Rc::new(BufferingConsumer::new(output_schema.clone()));
+
+    // create the compilation context
+    let mut compilation_context = CompilationContext::new(
+        codegen.clone(),
+        query.state.clone(),
+        consumer.clone(), // pass the consumer to the compilation context
+    );
+
+    // compile the query
+    compilation_context.compile_query(&mut query)?;
+
+    // execute the query
+    let executor_context = ExecutorContext::new(plan, session);
+
+    query.execute(&executor_context, consumer.clone())
+}
+
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use log::info;
-    use std::time::Instant;
-    use crate::parser::parse;
     use tokio::runtime::Runtime;
 
-    //RUST_LOG=info cargo test --package yoursql --lib -- compiler::tests::test_llvm --exact --nocapture
+    use super::*;
+    use crate::parser::parse;
+    use crate::session::SessionContext;
     #[test]
-    fn test_llvm() -> Result<()> {
-        env_logger::init();
+    fn test_compile_and_execute() {
         let session = SessionContext::default();
-        let context = Context::create();
-        let compiler = QueryCompiler::new(&context, "test");
-        compiler.register_external_func();
+        // use interpreter to create a table and insert some data
         let rt = Runtime::new().unwrap();
         rt.block_on(async {
-            session.state.read().run("create table tbl(id int, name varchar(20))").await.unwrap();
-            session.state.read().run("insert into tbl values (2, 'worl'), (65539, 'big')").await.unwrap();
+            session
+                .state
+                .read()
+                .run("create table tbl(id int, name varchar(20), age int)")
+                .await
+                .unwrap();
+            session
+                .state
+                .read()
+                .run("insert into tbl values (2, 'mike',34), (3, 'john',40), (4, 'json', 50)")
+                .await
+                .unwrap();
         });
         // get a logical plan from session
         let plan = rt.block_on(async {
-            let statement = parse("select * from tbl").unwrap();
-            let logical_plan = session.state.read().make_logical_plan(statement).await.unwrap();
+            let statement = parse("select id, name from tbl where age<=40").unwrap();
+            let logical_plan = session
+                .state
+                .read()
+                .make_logical_plan(statement)
+                .await
+                .unwrap();
             logical_plan
         });
-        // compile the plan
-        let start = Instant::now();
-        let mut collector = ResultCollector::new();
-        let func = compiler.compile_plan(&plan,&mut collector).unwrap();
-        info!("Compliation time is: {:?}", start.elapsed());
-        // display the IR
-        compiler.display();
-        // execute the plan
-        let start = Instant::now();
-        let batch = compiler.execute(func, &session)?;
-        //info!("Execution  time is: {:?}", start.elapsed());
-        //info!("the query result is \n {:?}",batch);
-
-        for p in collector.buffer.iter() {
-            info!("the query row addrs: {:?}\n",p);
-        }
-
-        info!("the final result is :{:?}", collector.get_result());
-
-        Ok(())
+        // compile and execute the query plan
+        let result = compile_and_execute(&plan, &session);
+        assert!(result.is_ok());
+        debug!("query result:\n{}\n", result.unwrap().to_string_table());
     }
 }

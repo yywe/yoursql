@@ -468,6 +468,18 @@ impl LogicalPlan {
         Ok(using_columns)
     }
 
+    pub fn source_tables(&self) -> Result<Vec<(OwnedTableReference, SchemaRef)>> {
+        let mut tables = vec![];
+        self.apply(&mut |plan| {
+            if let LogicalPlan::TableScan(TableScan { table_name, .. }) = plan {
+                let schema = plan.output_schema();
+                tables.push((table_name.clone(), schema));
+            }
+            Ok(VisitRecursion::Continue)
+        })?;
+        Ok(tables)
+    }
+
     pub fn expressions(self: &LogicalPlan) -> Vec<Expr> {
         let mut exprs = vec![];
         self.inspect_expressions(|e| {
@@ -529,6 +541,25 @@ impl LogicalPlan {
                 .map(|e| (*e).clone())
                 .collect(),
             _ => vec![],
+        }
+    }
+
+    /// return the LogicalPlan enum arm name as string
+    pub fn get_plan_enum_name(&self) -> String {
+        match self {
+            LogicalPlan::Aggregate(_) => "Aggregate".to_owned(),
+            LogicalPlan::CreateTable(_)=> "CreateTable".to_owned(),
+            LogicalPlan::Insert(_) => "Insert".to_owned(),
+            LogicalPlan::Projection(_) => "Projection".to_owned(),
+            LogicalPlan::Filter(_) => "Filter".to_owned(),
+            LogicalPlan::Join(_) => "Join".to_owned(),
+            LogicalPlan::Sort(_) => "Sort".to_owned(),
+            LogicalPlan::TableScan(_) => "TableScan".to_owned(),
+            LogicalPlan::EmptyRelation(_) => "EmptyRelation".to_owned(),
+            LogicalPlan::Limit(_) => "Limit".to_owned(),
+            LogicalPlan::CrossJoin(_) => "CrossJoin".to_owned(),
+            LogicalPlan::SubqueryAlias(_) => "SubqueryAlias".to_owned(),
+            LogicalPlan::Values(_) => "Values".to_owned(),
         }
     }
 }
@@ -828,6 +859,10 @@ mod test {
             .join_using(t2, JoinType::Inner, vec!["id"])?
             .project(vec![Expr::Wildcard])?
             .build()?;
+
+            let source_tables = _plan.source_tables()?;
+            assert_eq!(source_tables.len(), 2);
+            println!("source tables: {:?}", source_tables);
 
         // println!("{:?}", _plan);
         Ok(())

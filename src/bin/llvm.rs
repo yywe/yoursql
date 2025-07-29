@@ -19,6 +19,14 @@ struct CodeGen<'ctx> {
     execution_engine: ExecutionEngine<'ctx>,
 }
 
+
+
+pub struct CompilationContext<'a,'ctx:'a> {
+    pub codegen: &'a CodeGen<'ctx>,
+}
+
+
+
 impl<'ctx> CodeGen<'ctx> {
     fn jit_compile_sum(&self) -> Option<JitFunction<SumFunc>> {
         let i64_type = self.context.i64_type();
@@ -43,14 +51,42 @@ impl<'ctx> CodeGen<'ctx> {
 
 fn main() -> Result<(), Box<dyn Error>> {
     let context = Context::create();
+
+
     let module = context.create_module("sum");
+     module.set_triple(&inkwell::targets::TargetMachine::get_default_triple());
+
     let execution_engine = module.create_jit_execution_engine(OptimizationLevel::None)?;
+
+        module.set_data_layout(&execution_engine.get_target_data().get_data_layout());
+
+            let target_data = execution_engine.get_target_data();
+
+
+                let f32_type = context.f32_type();
+                let i16_type = context.i16_type();
+    let struct_type = context.struct_type(&[f32_type.into(), f32_type.into(), i16_type.into()], false);
+
+            let struct_size = target_data.get_abi_size(&struct_type);
+
+
+println!("Size of test struct: {:?}", struct_size);
+
     let codegen = CodeGen {
         context: &context,
         module,
         builder: context.create_builder(),
         execution_engine,
     };
+
+
+
+
+
+
+
+
+    let _compilation_context = CompilationContext { codegen: &codegen};
 
     let sum = codegen.jit_compile_sum().ok_or("Unable to JIT compile `sum`")?;
 
